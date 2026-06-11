@@ -10,33 +10,76 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiGoogleConnectRouteImport } from './routes/api/google/connect'
+import { Route as ApiGoogleCallbackRouteImport } from './routes/api/google/callback'
+import { Route as ApiPublicHooksPollGmailRouteImport } from './routes/api/public/hooks/poll-gmail'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGoogleConnectRoute = ApiGoogleConnectRouteImport.update({
+  id: '/api/google/connect',
+  path: '/api/google/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGoogleCallbackRoute = ApiGoogleCallbackRouteImport.update({
+  id: '/api/google/callback',
+  path: '/api/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHooksPollGmailRoute = ApiPublicHooksPollGmailRouteImport.update({
+  id: '/api/public/hooks/poll-gmail',
+  path: '/api/public/hooks/poll-gmail',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/google/connect': typeof ApiGoogleConnectRoute
+  '/api/public/hooks/poll-gmail': typeof ApiPublicHooksPollGmailRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/google/connect': typeof ApiGoogleConnectRoute
+  '/api/public/hooks/poll-gmail': typeof ApiPublicHooksPollGmailRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/google/connect': typeof ApiGoogleConnectRoute
+  '/api/public/hooks/poll-gmail': typeof ApiPublicHooksPollGmailRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/api/google/callback'
+    | '/api/google/connect'
+    | '/api/public/hooks/poll-gmail'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/api/google/callback'
+    | '/api/google/connect'
+    | '/api/public/hooks/poll-gmail'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/google/callback'
+    | '/api/google/connect'
+    | '/api/public/hooks/poll-gmail'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiGoogleCallbackRoute: typeof ApiGoogleCallbackRoute
+  ApiGoogleConnectRoute: typeof ApiGoogleConnectRoute
+  ApiPublicHooksPollGmailRoute: typeof ApiPublicHooksPollGmailRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,12 +91,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/google/connect': {
+      id: '/api/google/connect'
+      path: '/api/google/connect'
+      fullPath: '/api/google/connect'
+      preLoaderRoute: typeof ApiGoogleConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/google/callback': {
+      id: '/api/google/callback'
+      path: '/api/google/callback'
+      fullPath: '/api/google/callback'
+      preLoaderRoute: typeof ApiGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/poll-gmail': {
+      id: '/api/public/hooks/poll-gmail'
+      path: '/api/public/hooks/poll-gmail'
+      fullPath: '/api/public/hooks/poll-gmail'
+      preLoaderRoute: typeof ApiPublicHooksPollGmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiGoogleCallbackRoute: ApiGoogleCallbackRoute,
+  ApiGoogleConnectRoute: ApiGoogleConnectRoute,
+  ApiPublicHooksPollGmailRoute: ApiPublicHooksPollGmailRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
