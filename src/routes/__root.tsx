@@ -77,14 +77,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Meeting Agent · IA autonome pour vos rendez-vous" },
+      { name: "description", content: "Agent IA qui détecte les demandes de rendez-vous dans Gmail, vérifie Google Calendar et répond automatiquement à vos clients." },
+      { name: "author", content: "Meeting Agent" },
+      { property: "og:title", content: "Meeting Agent · IA autonome pour vos rendez-vous" },
+      { property: "og:description", content: "Agent IA qui gère vos rendez-vous via Gmail + Google Calendar." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       {
