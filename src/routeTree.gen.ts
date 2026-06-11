@@ -9,38 +9,128 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as ApiGoogleConnectRouteImport } from './routes/api/google/connect'
+import { Route as ApiGoogleCallbackRouteImport } from './routes/api/google/callback'
+import { Route as ApiPublicHooksPollGmailRouteImport } from './routes/api/public/hooks/poll-gmail'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiGoogleConnectRoute = ApiGoogleConnectRouteImport.update({
+  id: '/api/google/connect',
+  path: '/api/google/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGoogleCallbackRoute = ApiGoogleCallbackRouteImport.update({
+  id: '/api/google/callback',
+  path: '/api/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHooksPollGmailRoute = ApiPublicHooksPollGmailRouteImport.update({
+  id: '/api/public/hooks/poll-gmail',
+  path: '/api/public/hooks/poll-gmail',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/google/connect': typeof ApiGoogleConnectRoute
+  '/api/public/hooks/poll-gmail': typeof ApiPublicHooksPollGmailRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/google/connect': typeof ApiGoogleConnectRoute
+  '/api/public/hooks/poll-gmail': typeof ApiPublicHooksPollGmailRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/api/google/callback': typeof ApiGoogleCallbackRoute
+  '/api/google/connect': typeof ApiGoogleConnectRoute
+  '/api/public/hooks/poll-gmail': typeof ApiPublicHooksPollGmailRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/api/google/callback'
+    | '/api/google/connect'
+    | '/api/public/hooks/poll-gmail'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/api/google/callback'
+    | '/api/google/connect'
+    | '/api/public/hooks/poll-gmail'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/dashboard'
+    | '/api/google/callback'
+    | '/api/google/connect'
+    | '/api/public/hooks/poll-gmail'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
+  ApiGoogleCallbackRoute: typeof ApiGoogleCallbackRoute
+  ApiGoogleConnectRoute: typeof ApiGoogleConnectRoute
+  ApiPublicHooksPollGmailRoute: typeof ApiPublicHooksPollGmailRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +138,56 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/google/connect': {
+      id: '/api/google/connect'
+      path: '/api/google/connect'
+      fullPath: '/api/google/connect'
+      preLoaderRoute: typeof ApiGoogleConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/google/callback': {
+      id: '/api/google/callback'
+      path: '/api/google/callback'
+      fullPath: '/api/google/callback'
+      preLoaderRoute: typeof ApiGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/poll-gmail': {
+      id: '/api/public/hooks/poll-gmail'
+      path: '/api/public/hooks/poll-gmail'
+      fullPath: '/api/public/hooks/poll-gmail'
+      preLoaderRoute: typeof ApiPublicHooksPollGmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
+  ApiGoogleCallbackRoute: ApiGoogleCallbackRoute,
+  ApiGoogleConnectRoute: ApiGoogleConnectRoute,
+  ApiPublicHooksPollGmailRoute: ApiPublicHooksPollGmailRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
