@@ -308,13 +308,13 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         .update({ status: "confirmed", calendar_event_id: ev.id })
         .eq("id", pending.id);
       await supabaseAdmin.from("email_threads").update({ status: "confirmed" }).eq("id", thread.id);
-      await logActivity(userId, "appointment_created", "Rendez-vous confirmé et ajouté au calendrier", null, thread.id, { eventId: ev.id });
+      await logActivity(userId, "appointment_created", "Rendez-vous confirmé et ajouté au calendrier", undefined, thread.id, { eventId: ev.id });
 
       const reply = await craftReplyWithAI({
-        persona: settings.agent_persona,
+        persona: settings.agent_persona ?? "",
         language: settings.language,
         clientName: thread.client_name || "",
-        signature: settings.signature,
+        signature: settings.signature ?? "",
         context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
         proposalType: "confirm_booked",
         requestedSlot: { start: pending.scheduled_at, end: pending.scheduled_at },
@@ -396,10 +396,10 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
 
   // Craft + send reply
   const reply = await craftReplyWithAI({
-    persona: settings.agent_persona,
+    persona: settings.agent_persona ?? "",
     language: settings.language,
     clientName: thread.client_name || "",
-    signature: settings.signature,
+    signature: settings.signature ?? "",
     context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
     proposalType,
     slotsToOffer: alternatives,
