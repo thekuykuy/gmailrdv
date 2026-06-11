@@ -77,13 +77,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Meeting Agent · IA autonome pour vos rendez-vous" },
+      { title: "MAILY" },
       { name: "description", content: "Agent IA qui détecte les demandes de rendez-vous dans Gmail, vérifie Google Calendar et répond automatiquement à vos clients." },
       { name: "author", content: "Meeting Agent" },
-      { property: "og:title", content: "Meeting Agent · IA autonome pour vos rendez-vous" },
-      { property: "og:description", content: "Agent IA qui gère vos rendez-vous via Gmail + Google Calendar." },
+      { property: "og:title", content: "MAILY" },
+      { property: "og:description", content: "Agent IA qui détecte les demandes de rendez-vous dans Gmail, vérifie Google Calendar et répond automatiquement à vos clients." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "MAILY" },
+      { name: "twitter:description", content: "Agent IA qui détecte les demandes de rendez-vous dans Gmail, vérifie Google Calendar et répond automatiquement à vos clients." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/576bc05e-ddbc-4e9f-8da4-f6cec8b1e0d6/id-preview-2737a84d--b9920c2c-3fd4-4f38-896d-993da149405a.lovable.app-1781192675119.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/576bc05e-ddbc-4e9f-8da4-f6cec8b1e0d6/id-preview-2737a84d--b9920c2c-3fd4-4f38-896d-993da149405a.lovable.app-1781192675119.png" },
     ],
     links: [
       {
