@@ -495,7 +495,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   // Check calendar
   const accessToken = await getValidAccessToken(userId);
   const requested = analysis.requested_datetimes_iso[0];
-  const dur = analysis.duration_minutes ?? settings.appointment_duration_minutes;
+  const dur = analysis.duration_minutes > 0 ? analysis.duration_minutes : settings.appointment_duration_minutes;
 
   let proposalType: "slot_available" | "slot_taken_alternatives" | "need_more_info" = "need_more_info";
   let alternatives: { start: string; end: string }[] = [];
