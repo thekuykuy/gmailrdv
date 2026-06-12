@@ -15,7 +15,7 @@ import {
   sendGmailReply,
 } from "./google.server";
 
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "openai/gpt-5-mini";
 
 function getAI() {
   const key = process.env.LOVABLE_API_KEY;
@@ -323,6 +323,15 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
 
   // Confirmation flow
   if (analysis.intent === "confirm") {
+    // Idempotency: if this thread already has a confirmed appointment, skip booking
+    const { data: alreadyConfirmed } = await supabaseAdmin
+      .from("appointments")
+      .select("id")
+      .eq("thread_id", thread.id)
+      .eq("status", "confirmed")
+      .limit(1)
+      .maybeSingle();
+
     // Find latest proposed appointment for this thread
     const { data: pending } = await supabaseAdmin
       .from("appointments")
@@ -332,7 +341,21 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (pending) {
+
+    if (pending && !alreadyConfirmed) {
+      // Atomically claim the proposed row to prevent concurrent double-booking
+      const { data: claimed } = await supabaseAdmin
+        .from("appointments")
+        .update({ status: "booking" })
+        .eq("id", pending.id)
+        .eq("status", "proposed")
+        .select()
+        .maybeSingle();
+
+      if (!claimed) {
+        return { handled: true, skipped: "already_booking" };
+      }
+
       const accessToken = await getValidAccessToken(userId);
       const ev = await createCalendarEvent(accessToken, settings.calendar_id, {
         summary: `RDV avec ${thread.client_name || parts.fromEmail}`,
