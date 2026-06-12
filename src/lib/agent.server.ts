@@ -548,8 +548,14 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     if (alternatives[0]) proposedAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
   }
 
-  // Save proposed appointment
+  // Save proposed appointment — AUCUN événement Google Calendar ici.
+  // On garde une seule proposition active par fil : les anciennes sont annulées.
   if (proposedAppointment) {
+    await supabaseAdmin
+      .from("appointments")
+      .update({ status: "cancelled" })
+      .eq("thread_id", thread.id)
+      .eq("status", "proposed");
     await supabaseAdmin.from("appointments").insert({
       user_id: userId,
       thread_id: thread.id,
