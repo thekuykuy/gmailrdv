@@ -15,7 +15,7 @@ import {
   sendGmailReply,
 } from "./google.server";
 
-const MODEL = "openai/gpt-5-mini";
+const MODEL = "google/gemini-2.5-flash";
 
 function getAI() {
   const key = process.env.LOVABLE_API_KEY;
@@ -62,6 +62,11 @@ NOUVEL EMAIL:
 Sujet: ${opts.subject}
 Corps:
 ${opts.body}
+
+RÈGLES STRICTES pour "intent":
+- "confirm" UNIQUEMENT si l'ASSISTANT a déjà proposé un créneau précis dans l'historique ET que le client accepte explicitement CE créneau (ex: "oui je confirme", "c'est parfait pour ce créneau", "ok pour mardi 10h").
+- Une PREMIÈRE demande de rendez-vous n'est JAMAIS "confirm", même si le client écrit "je confirme vouloir un rendez-vous" — c'est "new_request".
+- S'il n'y a AUCUN message de l'assistant dans l'historique, intent ne peut pas être "confirm".
 
 Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de markdown), avec EXACTEMENT cette structure:
 {
@@ -269,8 +274,9 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     .maybeSingle();
   if (existing) return { skipped: "already_processed" };
 
-  // Save inbound
-  await supabaseAdmin.from("email_messages").insert({
+  // Save inbound — the unique index (thread_id, gmail_message_id) makes this race-safe:
+  // if two cron runs process the same message concurrently, only one insert succeeds.
+  const { error: insertErr } = await supabaseAdmin.from("email_messages").insert({
     thread_id: thread.id,
     user_id: userId,
     gmail_message_id: gmailMessage.id,
@@ -281,6 +287,10 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     body: parts.body,
     sent_at: parts.date ? new Date(parts.date).toISOString() : new Date().toISOString(),
   });
+  if (insertErr) {
+    // Duplicate key = another run already owns this message. Never process twice.
+    return { skipped: "duplicate_message" };
+  }
   await logActivity(userId, "email_received", `Email reçu de ${parts.fromName || parts.fromEmail}`, parts.subject, thread.id);
 
   // Build history
@@ -321,8 +331,17 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     return { handled: false, reason: "not_appointment" };
   }
 
-  // Confirmation flow
-  if (analysis.intent === "confirm") {
+  // GUARD MÉTIER: une "confirmation" n'est valide que si l'agent a déjà
+  // envoyé une proposition dans ce fil (au moins un message sortant).
+  // Une première demande ne peut JAMAIS déclencher une création d'événement.
+  const agentHasReplied = (history ?? []).some((m) => m.direction === "outbound");
+  const effectiveIntent = analysis.intent === "confirm" && !agentHasReplied ? "new_request" : analysis.intent;
+  if (analysis.intent === "confirm" && !agentHasReplied) {
+    await logActivity(userId, "analysis", "Intent 'confirm' rétrogradé en 'new_request' (aucune proposition envoyée)", undefined, thread.id);
+  }
+
+  // Confirmation flow — SEUL endroit où un événement Google Calendar est créé
+  if (effectiveIntent === "confirm") {
     // Idempotency: if this thread already has a confirmed appointment, skip booking
     const { data: alreadyConfirmed } = await supabaseAdmin
       .from("appointments")
@@ -357,20 +376,98 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       }
 
       const accessToken = await getValidAccessToken(userId);
+      const slotStart = new Date(pending.scheduled_at);
+      const slotEnd = new Date(slotStart.getTime() + pending.duration_minutes * 60_000);
+
+      // RÈGLE: un créneau = un seul rendez-vous. Re-vérifier la disponibilité
+      // (calendrier Google + RDV confirmés en base) juste avant de réserver.
+      const busyNow = await getFreeBusy(
+        accessToken,
+        settings.calendar_id,
+        new Date(slotStart.getTime() - 3600_000).toISOString(),
+        new Date(slotEnd.getTime() + 3600_000).toISOString(),
+        settings.timezone,
+      );
+      const calendarConflict = busyNow.some((b) => {
+        const bs = new Date(b.start).getTime();
+        const be = new Date(b.end).getTime();
+        return slotStart.getTime() < be && slotEnd.getTime() > bs;
+      });
+      const { data: dbOverlaps } = await supabaseAdmin
+        .from("appointments")
+        .select("id,scheduled_at,duration_minutes")
+        .eq("user_id", userId)
+        .in("status", ["confirmed", "booking"])
+        .neq("id", pending.id)
+        .gte("scheduled_at", new Date(slotStart.getTime() - 24 * 3600_000).toISOString())
+        .lte("scheduled_at", new Date(slotEnd.getTime() + 24 * 3600_000).toISOString());
+      const dbConflict = (dbOverlaps ?? []).some((a) => {
+        const as = new Date(a.scheduled_at).getTime();
+        const ae = as + (a.duration_minutes ?? 30) * 60_000;
+        return slotStart.getTime() < ae && slotEnd.getTime() > as;
+      });
+
+      if (calendarConflict || dbConflict) {
+        // Le créneau a été pris entre-temps — annuler la proposition et
+        // proposer des alternatives au lieu de réserver en double.
+        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+        await logActivity(userId, "calendar_check", "Conflit détecté à la confirmation — créneau déjà pris", `Créneau: ${slotStart.toISOString()}`, thread.id);
+
+        const widerBusy = await getFreeBusy(
+          accessToken,
+          settings.calendar_id,
+          new Date().toISOString(),
+          new Date(Date.now() + 14 * 86400_000).toISOString(),
+          settings.timezone,
+        );
+        const alts = suggestAlternativeSlots(widerBusy, settings, new Date(), 3);
+        if (alts[0]) {
+          await supabaseAdmin.from("appointments").insert({
+            user_id: userId,
+            thread_id: thread.id,
+            client_email: parts.fromEmail,
+            client_name: thread.client_name,
+            scheduled_at: alts[0].start,
+            duration_minutes: pending.duration_minutes,
+            status: "proposed",
+          });
+        }
+        const conflictReply = await craftReplyWithAI({
+          persona: settings.agent_persona ?? "",
+          language: settings.language,
+          clientName: thread.client_name || "",
+          signature: settings.signature ?? "",
+          context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
+          proposalType: "slot_taken_alternatives",
+          slotsToOffer: alts,
+          requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
+          timezone: settings.timezone,
+        });
+        await supabaseAdmin
+          .from("email_threads")
+          .update({ status: "awaiting_client", last_message_at: new Date().toISOString() })
+          .eq("id", thread.id);
+        await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
+        return { handled: true, conflict: true };
+      }
+
       const ev = await createCalendarEvent(accessToken, settings.calendar_id, {
         summary: `RDV avec ${thread.client_name || parts.fromEmail}`,
         description: `Confirmé via Agent IA.\n\n${analysis.summary}`,
-        start: { dateTime: pending.scheduled_at, timeZone: settings.timezone },
-        end: {
-          dateTime: new Date(new Date(pending.scheduled_at).getTime() + pending.duration_minutes * 60_000).toISOString(),
-          timeZone: settings.timezone,
-        },
+        start: { dateTime: slotStart.toISOString(), timeZone: settings.timezone },
+        end: { dateTime: slotEnd.toISOString(), timeZone: settings.timezone },
         attendees: [{ email: parts.fromEmail, displayName: thread.client_name ?? undefined }],
       });
       await supabaseAdmin
         .from("appointments")
         .update({ status: "confirmed", calendar_event_id: ev.id })
         .eq("id", pending.id);
+      // Annuler toute autre proposition restante du fil — un seul RDV par fil
+      await supabaseAdmin
+        .from("appointments")
+        .update({ status: "cancelled" })
+        .eq("thread_id", thread.id)
+        .eq("status", "proposed");
       await supabaseAdmin.from("email_threads").update({ status: "confirmed" }).eq("id", thread.id);
       await logActivity(userId, "appointment_created", "Rendez-vous confirmé et ajouté au calendrier", undefined, thread.id, { eventId: ev.id });
 
@@ -398,7 +495,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   // Check calendar
   const accessToken = await getValidAccessToken(userId);
   const requested = analysis.requested_datetimes_iso[0];
-  const dur = analysis.duration_minutes ?? settings.appointment_duration_minutes;
+  const dur = analysis.duration_minutes > 0 ? analysis.duration_minutes : settings.appointment_duration_minutes;
 
   let proposalType: "slot_available" | "slot_taken_alternatives" | "need_more_info" = "need_more_info";
   let alternatives: { start: string; end: string }[] = [];
@@ -451,8 +548,14 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     if (alternatives[0]) proposedAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
   }
 
-  // Save proposed appointment
+  // Save proposed appointment — AUCUN événement Google Calendar ici.
+  // On garde une seule proposition active par fil : les anciennes sont annulées.
   if (proposedAppointment) {
+    await supabaseAdmin
+      .from("appointments")
+      .update({ status: "cancelled" })
+      .eq("thread_id", thread.id)
+      .eq("status", "proposed");
     await supabaseAdmin.from("appointments").insert({
       user_id: userId,
       thread_id: thread.id,
