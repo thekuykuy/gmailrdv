@@ -105,10 +105,6 @@ export async function craftReplyWithAI(opts: {
   timezone: string;
 }) {
   const model = getAI();
-  const ReplySchema = z.object({
-    subject: z.string(),
-    body: z.string().describe("Corps de l'email en texte simple, ton naturel et chaleureux. Inclure la signature à la fin."),
-  });
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(opts.language, { dateStyle: "full", timeStyle: "short", timeZone: opts.timezone });
   const slotsBlock = opts.slotsToOffer?.length
@@ -123,10 +119,7 @@ export async function craftReplyWithAI(opts: {
     confirm_booked: "Confirme que le rendez-vous est désormais enregistré.",
   }[opts.proposalType];
 
-  const { object } = await generateObject({
-    model,
-    schema: ReplySchema,
-    prompt: `${opts.persona}
+  const prompt = `${opts.persona}
 Langue: ${opts.language}. Client: ${opts.clientName || "le client"}.
 Objectif: ${intent}
 ${reqBlock}
@@ -137,9 +130,26 @@ ${opts.context}
 
 Génère un email professionnel, concis, naturel. Termine avec cette signature:
 ---
-${opts.signature || ""}`,
-  });
-  return object;
+${opts.signature || ""}
+
+Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de markdown), avec EXACTEMENT cette structure:
+{
+  "subject": string,
+  "body": string
+}`;
+
+  try {
+    const { text } = await generateText({ model, prompt });
+    const obj = extractJson(text);
+    return {
+      subject: String(obj.subject ?? "Re: votre demande"),
+      body: String(obj.body ?? text),
+    };
+  } catch (e) {
+    console.error("[craftReplyWithAI] parse failed", e);
+    const { text } = await generateText({ model, prompt: prompt.replace(/Réponds UNIQUEMENT[\s\S]*$/, "Écris seulement le corps de l'email.") });
+    return { subject: "Re: votre demande", body: text };
+  }
 }
 
 function isWithinWorkingHours(date: Date, start: string, end: string, days: number[], tz: string) {
