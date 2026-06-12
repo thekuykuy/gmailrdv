@@ -15,7 +15,7 @@ import {
   sendGmailReply,
 } from "./google.server";
 
-const MODEL = "openai/gpt-5-mini";
+const MODEL = "google/gemini-2.5-flash";
 
 function getAI() {
   const key = process.env.LOVABLE_API_KEY;
@@ -62,6 +62,11 @@ NOUVEL EMAIL:
 Sujet: ${opts.subject}
 Corps:
 ${opts.body}
+
+RÈGLES STRICTES pour "intent":
+- "confirm" UNIQUEMENT si l'ASSISTANT a déjà proposé un créneau précis dans l'historique ET que le client accepte explicitement CE créneau (ex: "oui je confirme", "c'est parfait pour ce créneau", "ok pour mardi 10h").
+- Une PREMIÈRE demande de rendez-vous n'est JAMAIS "confirm", même si le client écrit "je confirme vouloir un rendez-vous" — c'est "new_request".
+- S'il n'y a AUCUN message de l'assistant dans l'historique, intent ne peut pas être "confirm".
 
 Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de markdown), avec EXACTEMENT cette structure:
 {
