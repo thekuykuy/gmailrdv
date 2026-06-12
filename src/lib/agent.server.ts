@@ -2,7 +2,7 @@
  * Core autonomous agent — runs per user, polls Gmail, analyzes via Lovable AI,
  * checks Calendar, replies, and logs activity.
  */
-import { generateObject } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 import {
@@ -15,7 +15,7 @@ import {
   sendGmailReply,
 } from "./google.server";
 
-const MODEL = "google/gemini-3-flash-preview";
+const MODEL = "google/gemini-2.5-flash";
 
 function getAI() {
   const key = process.env.LOVABLE_API_KEY;
@@ -24,14 +24,25 @@ function getAI() {
 }
 
 const AnalysisSchema = z.object({
-  is_appointment_request: z.boolean().describe("True si l'email demande explicitement un rendez-vous, une réunion, ou un appel."),
-  client_name: z.string().nullable(),
+  is_appointment_request: z.boolean(),
+  client_name: z.string().default(""),
   intent: z.enum(["new_request", "confirm", "decline", "reschedule", "info_only", "other"]),
-  requested_datetimes_iso: z.array(z.string()).describe("Créneaux exacts demandés au format ISO 8601 (si déductibles)."),
-  duration_minutes: z.number().nullable(),
-  summary: z.string().describe("Résumé en une phrase de la demande du client."),
-  questions_for_agent: z.array(z.string()).describe("Informations manquantes que l'agent devrait clarifier."),
+  requested_datetimes_iso: z.array(z.string()).default([]),
+  duration_minutes: z.number().default(0),
+  summary: z.string().default(""),
+  questions_for_agent: z.array(z.string()).default([]),
 });
+
+export type Analysis = z.infer<typeof AnalysisSchema>;
+
+function extractJson(text: string): any {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = fenced ? fenced[1] : text;
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first === -1 || last === -1) throw new Error("no JSON in response");
+  return JSON.parse(raw.slice(first, last + 1));
+}
 
 export async function analyzeEmailWithAI(opts: {
   body: string;
@@ -40,13 +51,9 @@ export async function analyzeEmailWithAI(opts: {
   language: string;
   nowIso: string;
   timezone: string;
-}) {
+}): Promise<Analysis> {
   const model = getAI();
-  const { object } = await generateObject({
-    model,
-    schema: AnalysisSchema,
-    prompt: `Tu es un classificateur expert. Date actuelle: ${opts.nowIso} (${opts.timezone}).
-Analyse cet email (langue préférée: ${opts.language}).
+  const prompt = `Tu es un classificateur d'emails. Date actuelle: ${opts.nowIso} (${opts.timezone}). Langue: ${opts.language}.
 
 Historique de la conversation:
 ${opts.history.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n---\n") || "(aucun)"}
@@ -56,9 +63,33 @@ Sujet: ${opts.subject}
 Corps:
 ${opts.body}
 
-Détecte les créneaux mentionnés (ex: "demain 14h", "lundi prochain matin", "vendredi 10/06 à 15h30") et convertis-les en ISO 8601 absolu en utilisant la date actuelle comme référence.`,
-  });
-  return object;
+Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de markdown), avec EXACTEMENT cette structure:
+{
+  "is_appointment_request": boolean,        // true si demande de RDV/réunion/appel
+  "client_name": string,                    // nom du client si déductible, sinon ""
+  "intent": "new_request" | "confirm" | "decline" | "reschedule" | "info_only" | "other",
+  "requested_datetimes_iso": string[],      // créneaux mentionnés en ISO 8601 absolu (utilise la date actuelle comme référence). Vide si aucun.
+  "duration_minutes": number,               // durée demandée en minutes, 0 si non précisée
+  "summary": string,                        // résumé en une phrase
+  "questions_for_agent": string[]           // infos manquantes à clarifier
+}`;
+
+  try {
+    const { text } = await generateText({ model, prompt });
+    const parsed = AnalysisSchema.parse(extractJson(text));
+    return parsed;
+  } catch (e) {
+    console.error("[analyzeEmailWithAI] parse failed", e);
+    return {
+      is_appointment_request: false,
+      client_name: "",
+      intent: "other",
+      requested_datetimes_iso: [],
+      duration_minutes: 0,
+      summary: "Analyse impossible — email ignoré.",
+      questions_for_agent: [],
+    };
+  }
 }
 
 export async function craftReplyWithAI(opts: {
