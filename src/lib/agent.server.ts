@@ -387,6 +387,12 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
     }
+
+    if (alreadyConfirmed) {
+      // Already booked — just acknowledge, never recreate
+      await logActivity(userId, "analysis", "Confirmation reçue mais RDV déjà enregistré", undefined, thread.id);
+      return { handled: true, skipped: "already_confirmed" };
+    }
   }
 
   // Check calendar
