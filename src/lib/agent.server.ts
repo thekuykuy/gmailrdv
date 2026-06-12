@@ -274,8 +274,9 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     .maybeSingle();
   if (existing) return { skipped: "already_processed" };
 
-  // Save inbound
-  await supabaseAdmin.from("email_messages").insert({
+  // Save inbound — the unique index (thread_id, gmail_message_id) makes this race-safe:
+  // if two cron runs process the same message concurrently, only one insert succeeds.
+  const { error: insertErr } = await supabaseAdmin.from("email_messages").insert({
     thread_id: thread.id,
     user_id: userId,
     gmail_message_id: gmailMessage.id,
@@ -286,6 +287,10 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     body: parts.body,
     sent_at: parts.date ? new Date(parts.date).toISOString() : new Date().toISOString(),
   });
+  if (insertErr) {
+    // Duplicate key = another run already owns this message. Never process twice.
+    return { skipped: "duplicate_message" };
+  }
   await logActivity(userId, "email_received", `Email reçu de ${parts.fromName || parts.fromEmail}`, parts.subject, thread.id);
 
   // Build history
