@@ -41,15 +41,15 @@ export function AppointmentsTab() {
                 </div>
                 <Badge variant="outline" className={
                   a.status === "confirmed" ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
-                  : a.status === "proposed" ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
+                  : a.status === "pending" ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
                   : "border-destructive/40 text-destructive bg-destructive/10"
                 }>
-                  {a.status === "confirmed" ? "Confirmé" : a.status === "proposed" ? "Proposé" : "Annulé"}
+                  {a.status === "confirmed" ? "Confirmé" : a.status === "pending" ? "En attente" : "Annulé"}
                 </Badge>
               </div>
               <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
                 <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />
-                  {new Date(a.scheduled_at).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}
+                  {new Date(a.scheduled_at).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short", timeZone: "Indian/Reunion" })}
                 </span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {a.duration_minutes}min</span>
               </div>

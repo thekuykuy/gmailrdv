@@ -206,6 +206,7 @@ export async function createCalendarEvent(
   accessToken: string,
   calendarId: string,
   event: {
+    id?: string;
     summary: string;
     description?: string;
     start: { dateTime: string; timeZone: string };
@@ -221,8 +222,23 @@ export async function createCalendarEvent(
       body: JSON.stringify(event),
     },
   );
-  if (!res.ok) throw new Error(`Calendar create failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const error = new Error(`Calendar create failed: ${res.status} ${await res.text()}`) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
+}
+
+export async function deleteCalendarEvent(accessToken: string, calendarId: string, eventId: string) {
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    throw new Error(`Calendar delete failed: ${res.status} ${await res.text()}`);
+  }
+  return { ok: true };
 }
 
 export async function getUserInfo(accessToken: string) {
