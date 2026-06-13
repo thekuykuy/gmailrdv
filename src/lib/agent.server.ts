@@ -415,24 +415,9 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         new Date(slotEnd.getTime() + 3600_000).toISOString(),
         settings.timezone,
       );
-      const calendarConflict = busyNow.some((b) => {
-        const bs = new Date(b.start).getTime();
-        const be = new Date(b.end).getTime();
-        return slotStart.getTime() < be && slotEnd.getTime() > bs;
-      });
-      const { data: dbOverlaps } = await supabaseAdmin
-        .from("appointments")
-        .select("id,scheduled_at,duration_minutes")
-        .eq("user_id", userId)
-        .eq("status", "confirmed")
-        .neq("id", pending.id)
-        .gte("scheduled_at", new Date(slotStart.getTime() - 24 * 3600_000).toISOString())
-        .lte("scheduled_at", new Date(slotEnd.getTime() + 24 * 3600_000).toISOString());
-      const dbConflict = (dbOverlaps ?? []).some((a) => {
-        const as = new Date(a.scheduled_at).getTime();
-        const ae = as + (a.duration_minutes ?? 30) * 60_000;
-        return slotStart.getTime() < ae && slotEnd.getTime() > as;
-      });
+      const calendarConflict = overlapsSlot(busyNow, slotStart, slotEnd);
+      const dbBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, slotStart, slotEnd, pending.id);
+      const dbConflict = overlapsSlot(dbBusy, slotStart, slotEnd);
 
       if (calendarConflict || dbConflict) {
         // Le créneau a été pris entre-temps — annuler la proposition et
@@ -447,7 +432,8 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           new Date(Date.now() + 14 * 86400_000).toISOString(),
           settings.timezone,
         );
-        const alts = suggestAlternativeSlots(widerBusy, settings, new Date(), 3);
+        const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
+        const alts = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
         if (alts[0]) {
           await supabaseAdmin.from("appointments").insert({
             user_id: userId,
