@@ -350,9 +350,10 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   // envoyé une proposition dans ce fil (au moins un message sortant).
   // Une première demande ne peut JAMAIS déclencher une création d'événement.
   const agentHasReplied = (history ?? []).some((m) => m.direction === "outbound");
-  const effectiveIntent = analysis.intent === "confirm" && !agentHasReplied ? "new_request" : analysis.intent;
-  if (analysis.intent === "confirm" && !agentHasReplied) {
-    await logActivity(userId, "analysis", "Intent 'confirm' rétrogradé en 'new_request' (aucune proposition envoyée)", undefined, thread.id);
+  const hasExplicitConfirmation = isExplicitAppointmentConfirmation(`${parts.subject}\n${parts.body}`);
+  const effectiveIntent = analysis.intent === "confirm" && agentHasReplied && hasExplicitConfirmation ? "confirm" : analysis.intent === "confirm" ? "new_request" : analysis.intent;
+  if (analysis.intent === "confirm" && effectiveIntent !== "confirm") {
+    await logActivity(userId, "analysis", "Intent 'confirm' rétrogradé en 'new_request' (confirmation client non explicite ou aucune proposition envoyée)", undefined, thread.id);
   }
 
   // Confirmation flow — SEUL endroit où un événement Google Calendar est créé
@@ -366,30 +367,17 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       .limit(1)
       .maybeSingle();
 
-    // Find latest proposed appointment for this thread
+    // Find latest pending appointment for this thread
     const { data: pending } = await supabaseAdmin
       .from("appointments")
       .select("*")
       .eq("thread_id", thread.id)
-      .eq("status", "proposed")
+      .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (pending && !alreadyConfirmed) {
-      // Atomically claim the proposed row to prevent concurrent double-booking
-      const { data: claimed } = await supabaseAdmin
-        .from("appointments")
-        .update({ status: "booking" })
-        .eq("id", pending.id)
-        .eq("status", "proposed")
-        .select()
-        .maybeSingle();
-
-      if (!claimed) {
-        return { handled: true, skipped: "already_booking" };
-      }
-
       const accessToken = await getValidAccessToken(userId);
       const slotStart = new Date(pending.scheduled_at);
       const slotEnd = new Date(slotStart.getTime() + pending.duration_minutes * 60_000);
@@ -412,7 +400,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         .from("appointments")
         .select("id,scheduled_at,duration_minutes")
         .eq("user_id", userId)
-        .in("status", ["confirmed", "booking"])
+        .eq("status", "confirmed")
         .neq("id", pending.id)
         .gte("scheduled_at", new Date(slotStart.getTime() - 24 * 3600_000).toISOString())
         .lte("scheduled_at", new Date(slotEnd.getTime() + 24 * 3600_000).toISOString());
