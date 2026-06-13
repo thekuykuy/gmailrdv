@@ -511,7 +511,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   let proposalType: "slot_available" | "slot_taken_alternatives" | "need_more_info" = "need_more_info";
   let alternatives: { start: string; end: string }[] = [];
   let requestedSlot: { start: string; end: string } | undefined;
-  let proposedAppointment: { scheduled_at: string; duration_minutes: number } | null = null;
+  let pendingAppointment: { scheduled_at: string; duration_minutes: number } | null = null;
 
   if (requested) {
     const start = new Date(requested);
@@ -532,7 +532,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     requestedSlot = { start: start.toISOString(), end: end.toISOString() };
     if (!conflict && isWithinWorkingHours(start, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)) {
       proposalType = "slot_available";
-      proposedAppointment = { scheduled_at: start.toISOString(), duration_minutes: dur };
+      pendingAppointment = { scheduled_at: start.toISOString(), duration_minutes: dur };
     } else {
       proposalType = "slot_taken_alternatives";
       const widerBusy = await getFreeBusy(
@@ -543,7 +543,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         settings.timezone,
       );
       alternatives = suggestAlternativeSlots(widerBusy, settings, new Date(), 3);
-      if (alternatives[0]) proposedAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
+      if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
     }
   } else {
     // No datetime — offer alternatives proactively
@@ -556,25 +556,25 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     );
     alternatives = suggestAlternativeSlots(widerBusy, settings, new Date(), 3);
     proposalType = alternatives.length ? "slot_taken_alternatives" : "need_more_info";
-    if (alternatives[0]) proposedAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
+    if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
   }
 
-  // Save proposed appointment — AUCUN événement Google Calendar ici.
-  // On garde une seule proposition active par fil : les anciennes sont annulées.
-  if (proposedAppointment) {
+  // Save pending appointment — AUCUN événement Google Calendar ici.
+  // On garde une seule demande active par fil : les anciennes sont annulées.
+  if (pendingAppointment) {
     await supabaseAdmin
       .from("appointments")
       .update({ status: "cancelled" })
       .eq("thread_id", thread.id)
-      .eq("status", "proposed");
+      .eq("status", "pending");
     await supabaseAdmin.from("appointments").insert({
       user_id: userId,
       thread_id: thread.id,
       client_email: parts.fromEmail,
       client_name: thread.client_name,
-      scheduled_at: proposedAppointment.scheduled_at,
-      duration_minutes: proposedAppointment.duration_minutes,
-      status: "proposed",
+      scheduled_at: pendingAppointment.scheduled_at,
+      duration_minutes: pendingAppointment.duration_minutes,
+      status: "pending",
     });
   }
 
