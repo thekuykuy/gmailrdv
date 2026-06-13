@@ -206,6 +206,7 @@ export async function createCalendarEvent(
   accessToken: string,
   calendarId: string,
   event: {
+    id?: string;
     summary: string;
     description?: string;
     start: { dateTime: string; timeZone: string };
@@ -221,7 +222,11 @@ export async function createCalendarEvent(
       body: JSON.stringify(event),
     },
   );
-  if (!res.ok) throw new Error(`Calendar create failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const error = new Error(`Calendar create failed: ${res.status} ${await res.text()}`) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
 }
 
