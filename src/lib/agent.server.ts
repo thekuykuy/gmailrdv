@@ -223,6 +223,30 @@ export function suggestAlternativeSlots(
   return slots;
 }
 
+function overlapsSlot(busy: { start: string; end: string }[], start: Date, end: Date) {
+  return busy.some((b) => {
+    const bs = new Date(b.start).getTime();
+    const be = new Date(b.end).getTime();
+    return start.getTime() < be && end.getTime() > bs;
+  });
+}
+
+async function getConfirmedAppointmentBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeId?: string) {
+  let query = supabaseAdmin
+    .from("appointments")
+    .select("id,scheduled_at,duration_minutes")
+    .eq("user_id", userId)
+    .eq("status", "confirmed")
+    .gte("scheduled_at", new Date(start.getTime() - 24 * 3600_000).toISOString())
+    .lte("scheduled_at", new Date(end.getTime() + 24 * 3600_000).toISOString());
+  if (excludeId) query = query.neq("id", excludeId);
+  const { data } = await query;
+  return (data ?? []).map((a: any) => {
+    const s = new Date(a.scheduled_at);
+    return { start: s.toISOString(), end: new Date(s.getTime() + (a.duration_minutes ?? 30) * 60_000).toISOString() };
+  });
+}
+
 export async function logActivity(
   userId: string,
   type: string,
