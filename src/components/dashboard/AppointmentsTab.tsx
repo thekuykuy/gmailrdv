@@ -49,7 +49,7 @@ export function AppointmentsTab() {
               </div>
               <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
                 <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />
-                  {new Date(a.scheduled_at).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}
+                  {new Date(a.scheduled_at).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short", timeZone: "Indian/Reunion" })}
                 </span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {a.duration_minutes}min</span>
               </div>
