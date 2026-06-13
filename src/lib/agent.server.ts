@@ -44,6 +44,21 @@ function extractJson(text: string): any {
   return JSON.parse(raw.slice(first, last + 1));
 }
 
+function isExplicitAppointmentConfirmation(text: string) {
+  const normalized = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const hasConfirmation = /\b(je confirme|confirme|confirmation|oui|ok|d'accord|parfait|c'est bon|ca marche|valid[eé]|allons-y)\b/.test(normalized);
+  const isOnlyNewRequest = /\b(je voudrais|j'aimerais|je souhaite|pouvez-vous|serait-il possible|demande de rendez-vous|prendre rendez-vous)\b/.test(normalized) && !/\b(je confirme|confirme|oui|ok|d'accord|parfait|valid[eé])\b/.test(normalized);
+  return hasConfirmation && !isOnlyNewRequest;
+}
+
+function makeGoogleCalendarEventId(appointmentId: string) {
+  return `agent${appointmentId.replace(/-/g, "")}`;
+}
+
+function isCalendarAlreadyExistsError(error: unknown) {
+  return typeof error === "object" && error !== null && "status" in error && (error as { status?: number }).status === 409;
+}
+
 export async function analyzeEmailWithAI(opts: {
   body: string;
   subject: string;
