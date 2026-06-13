@@ -47,7 +47,7 @@ function extractJson(text: string): any {
 
 function isExplicitAppointmentConfirmation(text: string) {
   const normalized = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const hasConfirmation = /\b(je confirme|confirme|confirmation|oui|ok|d'accord|parfait|c'est bon|ca marche|valid[eé]|allons-y)\b/.test(normalized);
+  const hasConfirmation = /\b(je confirme|confirme|confirmation|oui|ok|d'accord|parfait|c'est bon|ca marche|ca me va|ca me convient|cela me convient|valid[eé]|allons-y)\b/.test(normalized);
   const isOnlyNewRequest = /\b(je voudrais|j'aimerais|je souhaite|pouvez-vous|serait-il possible|demande de rendez-vous|prendre rendez-vous)\b/.test(normalized) && !/\b(je confirme|confirme|oui|ok|d'accord|parfait|valid[eé])\b/.test(normalized);
   return hasConfirmation && !isOnlyNewRequest;
 }
