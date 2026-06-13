@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 import {
   createCalendarEvent,
+  deleteCalendarEvent,
   extractEmailParts,
   getFreeBusy,
   getGmailMessage,
@@ -483,6 +484,16 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         .update({ status: "confirmed", calendar_event_id: ev.id })
         .eq("id", pending.id)
         .eq("status", "pending");
+      const { data: confirmedRow } = await supabaseAdmin
+        .from("appointments")
+        .select("id")
+        .eq("id", pending.id)
+        .eq("status", "confirmed")
+        .maybeSingle();
+      if (!confirmedRow) {
+        if (ev.id) await deleteCalendarEvent(accessToken, settings.calendar_id, ev.id);
+        return { handled: true, skipped: "confirmation_race_lost" };
+      }
       // Annuler toute autre demande restante du fil — un seul RDV par fil
       await supabaseAdmin
         .from("appointments")
