@@ -404,8 +404,10 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
 
     if (pending && !alreadyConfirmed) {
       const accessToken = await getValidAccessToken(userId);
-      const slotStart = new Date(pending.scheduled_at);
-      const slotEnd = new Date(slotStart.getTime() + pending.duration_minutes * 60_000);
+      const selectedSlotIso = analysis.requested_datetimes_iso[0] || pending.scheduled_at;
+      const selectedDuration = analysis.duration_minutes > 0 ? analysis.duration_minutes : pending.duration_minutes;
+      const slotStart = new Date(selectedSlotIso);
+      const slotEnd = new Date(slotStart.getTime() + selectedDuration * 60_000);
 
       // RÈGLE: un créneau = un seul rendez-vous. Re-vérifier la disponibilité
       // (calendrier Google + RDV confirmés en base) juste avant de réserver.
@@ -442,7 +444,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
             client_email: parts.fromEmail,
             client_name: thread.client_name,
             scheduled_at: alts[0].start,
-            duration_minutes: pending.duration_minutes,
+            duration_minutes: selectedDuration,
             status: "pending",
           });
         }
@@ -481,7 +483,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       }
       await supabaseAdmin
         .from("appointments")
-        .update({ status: "confirmed", calendar_event_id: ev.id })
+        .update({ status: "confirmed", calendar_event_id: ev.id, scheduled_at: slotStart.toISOString(), duration_minutes: selectedDuration })
         .eq("id", pending.id)
         .eq("status", "pending");
       const { data: confirmedRow } = await supabaseAdmin
