@@ -432,7 +432,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
             client_name: thread.client_name,
             scheduled_at: alts[0].start,
             duration_minutes: pending.duration_minutes,
-            status: "proposed",
+            status: "pending",
           });
         }
         const conflictReply = await craftReplyWithAI({
@@ -454,23 +454,31 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         return { handled: true, conflict: true };
       }
 
-      const ev = await createCalendarEvent(accessToken, settings.calendar_id, {
-        summary: `RDV avec ${thread.client_name || parts.fromEmail}`,
-        description: `Confirmé via Agent IA.\n\n${analysis.summary}`,
-        start: { dateTime: slotStart.toISOString(), timeZone: settings.timezone },
-        end: { dateTime: slotEnd.toISOString(), timeZone: settings.timezone },
-        attendees: [{ email: parts.fromEmail, displayName: thread.client_name ?? undefined }],
-      });
+      const eventId = makeGoogleCalendarEventId(pending.id);
+      let ev: { id?: string } = { id: eventId };
+      try {
+        ev = await createCalendarEvent(accessToken, settings.calendar_id, {
+          id: eventId,
+          summary: `RDV avec ${thread.client_name || parts.fromEmail}`,
+          description: `Confirmé via Agent IA.\n\n${analysis.summary}`,
+          start: { dateTime: slotStart.toISOString(), timeZone: settings.timezone },
+          end: { dateTime: slotEnd.toISOString(), timeZone: settings.timezone },
+          attendees: [{ email: parts.fromEmail, displayName: thread.client_name ?? undefined }],
+        });
+      } catch (error) {
+        if (!isCalendarAlreadyExistsError(error)) throw error;
+      }
       await supabaseAdmin
         .from("appointments")
         .update({ status: "confirmed", calendar_event_id: ev.id })
-        .eq("id", pending.id);
-      // Annuler toute autre proposition restante du fil — un seul RDV par fil
+        .eq("id", pending.id)
+        .eq("status", "pending");
+      // Annuler toute autre demande restante du fil — un seul RDV par fil
       await supabaseAdmin
         .from("appointments")
         .update({ status: "cancelled" })
         .eq("thread_id", thread.id)
-        .eq("status", "proposed");
+        .eq("status", "pending");
       await supabaseAdmin.from("email_threads").update({ status: "confirmed" }).eq("id", thread.id);
       await logActivity(userId, "appointment_created", "Rendez-vous confirmé et ajouté au calendrier", undefined, thread.id, { eventId: ev.id });
 
