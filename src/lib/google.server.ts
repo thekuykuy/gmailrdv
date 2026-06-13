@@ -230,6 +230,17 @@ export async function createCalendarEvent(
   return res.json();
 }
 
+export async function deleteCalendarEvent(accessToken: string, calendarId: string, eventId: string) {
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    throw new Error(`Calendar delete failed: ${res.status} ${await res.text()}`);
+  }
+  return { ok: true };
+}
+
 export async function getUserInfo(accessToken: string) {
   const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
     headers: { Authorization: `Bearer ${accessToken}` },
