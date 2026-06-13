@@ -533,11 +533,8 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       new Date(end.getTime() + 3600_000).toISOString(),
       settings.timezone,
     );
-    const conflict = busy.some((b) => {
-      const bs = new Date(b.start).getTime();
-      const be = new Date(b.end).getTime();
-      return start.getTime() < be && end.getTime() > bs;
-    });
+    const dbBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, start, end);
+    const conflict = overlapsSlot([...busy, ...dbBusy], start, end);
     await logActivity(userId, "calendar_check", conflict ? "Créneau occupé" : "Créneau libre", `Demandé: ${start.toISOString()}`, thread.id);
     requestedSlot = { start: start.toISOString(), end: end.toISOString() };
     if (!conflict && isWithinWorkingHours(start, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)) {
@@ -552,7 +549,8 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         new Date(Date.now() + 14 * 86400_000).toISOString(),
         settings.timezone,
       );
-      alternatives = suggestAlternativeSlots(widerBusy, settings, new Date(), 3);
+      const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
+      alternatives = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
       if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
     }
   } else {
@@ -564,7 +562,8 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       new Date(Date.now() + 14 * 86400_000).toISOString(),
       settings.timezone,
     );
-    alternatives = suggestAlternativeSlots(widerBusy, settings, new Date(), 3);
+    const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
+    alternatives = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
     proposalType = alternatives.length ? "slot_taken_alternatives" : "need_more_info";
     if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
   }
