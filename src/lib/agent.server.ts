@@ -470,18 +470,18 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           new Date(Date.now() + 14 * 86400_000).toISOString(),
           settings.timezone,
         );
-        const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
-        const alts = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
-        if (alts[0]) {
-          await supabaseAdmin.from("appointments").insert({
+        const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+        const alts = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, slotStart, 3);
+        if (alts.length) {
+          await supabaseAdmin.from("appointments").insert(alts.map((alt) => ({
             user_id: userId,
             thread_id: thread.id,
             client_email: parts.fromEmail,
             client_name: thread.client_name,
-            scheduled_at: alts[0].start,
+            scheduled_at: alt.start,
             duration_minutes: selectedDuration,
             status: "pending",
-          });
+          })));
         }
         const conflictReply = await craftReplyWithAI({
           persona: settings.agent_persona ?? "",
@@ -493,6 +493,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           slotsToOffer: alts,
           requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
           timezone: settings.timezone,
+          aiModel: settings.ai_model,
         });
         await supabaseAdmin
           .from("email_threads")
