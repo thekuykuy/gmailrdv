@@ -740,21 +740,21 @@ export async function runAgentForUser(userId: string) {
   const { data: lockClaimed } = await supabaseAdmin.rpc("claim_google_processing_lock", { _user_id: userId, _ttl_seconds: 300 });
   if (!lockClaimed) return { processed: 0, skipped: "agent_already_running" };
   try {
-  const accessToken = await getValidAccessToken(userId);
-  const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) : Math.floor(Date.now() / 1000) - 86400;
-  const list = await listRecentMessages(accessToken, after, 15);
-  let processed = 0;
-  for (const m of list.messages ?? []) {
-    try {
-      const full = await getGmailMessage(accessToken, m.id);
-      const res = await processIncomingMessage(userId, full);
-      if (res && (res as any).handled) processed++;
-    } catch (e: any) {
-      await logActivity(userId, "error", "Erreur de traitement", String(e?.message ?? e));
+    const accessToken = await getValidAccessToken(userId);
+    const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) : Math.floor(Date.now() / 1000) - 86400;
+    const list = await listRecentMessages(accessToken, after, 15);
+    let processed = 0;
+    for (const m of list.messages ?? []) {
+      try {
+        const full = await getGmailMessage(accessToken, m.id);
+        const res = await processIncomingMessage(userId, full);
+        if (res && (res as any).handled) processed++;
+      } catch (e: any) {
+        await logActivity(userId, "error", "Erreur de traitement", String(e?.message ?? e));
+      }
     }
-  }
-  await supabaseAdmin.from("google_connections").update({ last_poll_at: new Date().toISOString() }).eq("user_id", userId);
-  return { processed, total: list.messages?.length ?? 0 };
+    await supabaseAdmin.from("google_connections").update({ last_poll_at: new Date().toISOString() }).eq("user_id", userId);
+    return { processed, total: list.messages?.length ?? 0 };
   } finally {
     await supabaseAdmin.rpc("release_google_processing_lock", { _user_id: userId });
   }
