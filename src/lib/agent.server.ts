@@ -556,6 +556,16 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
         return { handled: true, conflict: true, skipped: "confirmation_race_lost" };
       }
+      const { data: confirmedRow } = await supabaseAdmin
+        .from("appointments")
+        .select("id")
+        .eq("id", pending.id)
+        .eq("status", "confirmed")
+        .maybeSingle();
+      if (!confirmedRow) {
+        await logActivity(userId, "calendar_check", "Confirmation ignorée — le créneau n'est plus en attente", undefined, thread.id);
+        return { handled: true, skipped: "confirmation_race_lost" };
+      }
       let ev: { id?: string } = { id: eventId };
       try {
         ev = await createCalendarEvent(accessToken, settings.calendar_id, {
