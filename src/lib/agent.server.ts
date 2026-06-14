@@ -196,6 +196,14 @@ function isWithinWorkingHours(date: Date, start: string, end: string, days: numb
   return mins >= sh * 60 + sm && mins + 1 <= eh * 60 + em;
 }
 
+function appointmentFitsWorkingHours(date: Date, durationMinutes: number, settings: { working_days: number[]; working_hours_start: string; working_hours_end: string; timezone: string }) {
+  const end = new Date(date.getTime() + Math.max(durationMinutes, 1) * 60_000 - 60_000);
+  return (
+    isWithinWorkingHours(date, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone) &&
+    isWithinWorkingHours(end, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)
+  );
+}
+
 export function suggestAlternativeSlots(
   busy: { start: string; end: string }[],
   settings: { working_days: number[]; working_hours_start: string; working_hours_end: string; appointment_duration_minutes: number; buffer_minutes: number; timezone: string },
@@ -214,7 +222,7 @@ export function suggestAlternativeSlots(
 
   while (cursor < limit) {
     if (
-      isWithinWorkingHours(cursor, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)
+      appointmentFitsWorkingHours(cursor, dur, settings)
     ) {
       const end = new Date(cursor.getTime() + dur * 60_000);
       const isBusy = busy.some((b) => {
@@ -585,7 +593,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     const conflict = overlapsSlot([...busy, ...dbBusy], start, end);
     await logActivity(userId, "calendar_check", conflict ? "Créneau occupé" : "Créneau libre", `Demandé: ${start.toISOString()}`, thread.id);
     requestedSlot = { start: start.toISOString(), end: end.toISOString() };
-    if (!conflict && isWithinWorkingHours(start, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)) {
+    if (!conflict && appointmentFitsWorkingHours(start, dur, settings)) {
       proposalType = "slot_available";
       pendingAppointments = [{ scheduled_at: start.toISOString(), duration_minutes: dur }];
     } else {
