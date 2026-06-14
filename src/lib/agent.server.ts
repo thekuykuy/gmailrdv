@@ -569,7 +569,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   let proposalType: "slot_available" | "slot_taken_alternatives" | "need_more_info" = "need_more_info";
   let alternatives: { start: string; end: string }[] = [];
   let requestedSlot: { start: string; end: string } | undefined;
-  let pendingAppointment: { scheduled_at: string; duration_minutes: number } | null = null;
+  let pendingAppointments: { scheduled_at: string; duration_minutes: number }[] = [];
 
   if (requested) {
     const start = new Date(requested);
@@ -581,13 +581,13 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       new Date(end.getTime() + 3600_000).toISOString(),
       settings.timezone,
     );
-    const dbBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, start, end);
+    const dbBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, start, end, thread.id);
     const conflict = overlapsSlot([...busy, ...dbBusy], start, end);
     await logActivity(userId, "calendar_check", conflict ? "Créneau occupé" : "Créneau libre", `Demandé: ${start.toISOString()}`, thread.id);
     requestedSlot = { start: start.toISOString(), end: end.toISOString() };
     if (!conflict && isWithinWorkingHours(start, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)) {
       proposalType = "slot_available";
-      pendingAppointment = { scheduled_at: start.toISOString(), duration_minutes: dur };
+      pendingAppointments = [{ scheduled_at: start.toISOString(), duration_minutes: dur }];
     } else {
       proposalType = "slot_taken_alternatives";
       const widerBusy = await getFreeBusy(
@@ -597,9 +597,9 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         new Date(Date.now() + 14 * 86400_000).toISOString(),
         settings.timezone,
       );
-      const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
-      alternatives = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
-      if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
+      const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+      alternatives = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, start, 3);
+      pendingAppointments = alternatives.map((alt) => ({ scheduled_at: alt.start, duration_minutes: dur }));
     }
   } else {
     // No datetime — offer alternatives proactively
@@ -610,21 +610,21 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       new Date(Date.now() + 14 * 86400_000).toISOString(),
       settings.timezone,
     );
-    const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
-    alternatives = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
+    const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+    alternatives = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, new Date(), 3);
     proposalType = alternatives.length ? "slot_taken_alternatives" : "need_more_info";
-    if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
+    pendingAppointments = alternatives.map((alt) => ({ scheduled_at: alt.start, duration_minutes: dur }));
   }
 
   // Save pending appointment — AUCUN événement Google Calendar ici.
   // On garde une seule demande active par fil : les anciennes sont annulées.
-  if (pendingAppointment) {
+  if (pendingAppointments.length) {
     await supabaseAdmin
       .from("appointments")
       .update({ status: "cancelled" })
       .eq("thread_id", thread.id)
       .eq("status", "pending");
-    await supabaseAdmin.from("appointments").insert({
+    await supabaseAdmin.from("appointments").insert(pendingAppointments.map((pendingAppointment) => ({
       user_id: userId,
       thread_id: thread.id,
       client_email: parts.fromEmail,
@@ -632,7 +632,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       scheduled_at: pendingAppointment.scheduled_at,
       duration_minutes: pendingAppointment.duration_minutes,
       status: "pending",
-    });
+    })));
   }
 
   // Craft + send reply
@@ -647,6 +647,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     requestedSlot,
     questions: analysis.questions_for_agent,
     timezone: settings.timezone,
+    aiModel: settings.ai_model,
   });
 
   await supabaseAdmin
