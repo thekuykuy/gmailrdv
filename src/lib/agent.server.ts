@@ -503,6 +503,15 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       }
 
       const eventId = makeGoogleCalendarEventId(pending.id);
+      const { error: confirmError } = await supabaseAdmin
+        .from("appointments")
+        .update({ status: "confirmed", scheduled_at: slotStart.toISOString(), duration_minutes: selectedDuration })
+        .eq("id", pending.id)
+        .eq("status", "pending");
+      if (confirmError) {
+        await logActivity(userId, "calendar_check", "Conflit détecté pendant le verrouillage du rendez-vous", confirmError.message, thread.id);
+        return { handled: true, skipped: "confirmation_race_lost" };
+      }
       let ev: { id?: string } = { id: eventId };
       try {
         ev = await createCalendarEvent(accessToken, settings.calendar_id, {
@@ -514,23 +523,12 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           attendees: [{ email: parts.fromEmail, displayName: thread.client_name ?? undefined }],
         });
       } catch (error) {
-        if (!isCalendarAlreadyExistsError(error)) throw error;
+        if (!isCalendarAlreadyExistsError(error)) {
+          await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+          throw error;
+        }
       }
-      await supabaseAdmin
-        .from("appointments")
-        .update({ status: "confirmed", calendar_event_id: ev.id, scheduled_at: slotStart.toISOString(), duration_minutes: selectedDuration })
-        .eq("id", pending.id)
-        .eq("status", "pending");
-      const { data: confirmedRow } = await supabaseAdmin
-        .from("appointments")
-        .select("id")
-        .eq("id", pending.id)
-        .eq("status", "confirmed")
-        .maybeSingle();
-      if (!confirmedRow) {
-        if (ev.id) await deleteCalendarEvent(accessToken, settings.calendar_id, ev.id);
-        return { handled: true, skipped: "confirmation_race_lost" };
-      }
+      await supabaseAdmin.from("appointments").update({ calendar_event_id: ev.id ?? eventId }).eq("id", pending.id);
       // Annuler toute autre demande restante du fil — un seul RDV par fil
       await supabaseAdmin
         .from("appointments")
@@ -549,6 +547,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         proposalType: "confirm_booked",
         requestedSlot: { start: pending.scheduled_at, end: pending.scheduled_at },
         timezone: settings.timezone,
+        aiModel: settings.ai_model,
       });
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
