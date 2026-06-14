@@ -195,16 +195,17 @@ export function suggestAlternativeSlots(
   fromDate: Date,
   count = 3,
 ) {
-  const slots: { start: string; end: string }[] = [];
+  const candidates: { slot: { start: string; end: string }; score: number }[] = [];
   const dur = settings.appointment_duration_minutes;
-  const buf = settings.buffer_minutes;
-  const totalMin = dur + buf;
-  const cursor = new Date(fromDate);
-  cursor.setMinutes(0, 0, 0);
-  cursor.setHours(cursor.getHours() + 1);
-  const limit = new Date(fromDate.getTime() + 14 * 86400_000);
+  const stepMin = Math.max(30, settings.buffer_minutes || 0);
+  const now = new Date(Date.now() + 30 * 60_000);
+  const anchor = fromDate.getTime() > now.getTime() ? fromDate : now;
+  const cursor = new Date(anchor);
+  cursor.setMinutes(Math.ceil(cursor.getMinutes() / 30) * 30, 0, 0);
+  const limit = new Date(anchor.getTime() + 14 * 86400_000);
+  const anchorMinutes = getMinutesInTimezone(anchor, settings.timezone);
 
-  while (cursor < limit && slots.length < count) {
+  while (cursor < limit) {
     if (
       isWithinWorkingHours(cursor, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)
     ) {
@@ -215,14 +216,22 @@ export function suggestAlternativeSlots(
         return cursor.getTime() < be && end.getTime() > bs;
       });
       if (!isBusy) {
-        slots.push({ start: cursor.toISOString(), end: end.toISOString() });
-        cursor.setTime(cursor.getTime() + totalMin * 60_000);
-        continue;
+        const dayDistance = Math.floor(Math.max(0, cursor.getTime() - anchor.getTime()) / 86400_000);
+        const timeDistance = Math.abs(getMinutesInTimezone(cursor, settings.timezone) - anchorMinutes);
+        candidates.push({ slot: { start: cursor.toISOString(), end: end.toISOString() }, score: dayDistance * 600 + timeDistance });
       }
     }
-    cursor.setMinutes(cursor.getMinutes() + 30);
+    cursor.setMinutes(cursor.getMinutes() + stepMin);
   }
-  return slots;
+  return candidates
+    .sort((a, b) => a.score - b.score || new Date(a.slot.start).getTime() - new Date(b.slot.start).getTime())
+    .slice(0, count)
+    .map((c) => c.slot);
+}
+
+function getMinutesInTimezone(date: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "numeric", hour12: false }).formatToParts(date);
+  return Number(parts.find((p) => p.type === "hour")?.value ?? "0") * 60 + Number(parts.find((p) => p.type === "minute")?.value ?? "0");
 }
 
 function overlapsSlot(busy: { start: string; end: string }[], start: Date, end: Date) {
@@ -233,20 +242,37 @@ function overlapsSlot(busy: { start: string; end: string }[], start: Date, end: 
   });
 }
 
-async function getConfirmedAppointmentBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeId?: string) {
+async function getAppointmentBusy(
+  supabaseAdmin: any,
+  userId: string,
+  start: Date,
+  end: Date,
+  statuses: string[],
+  excludeId?: string,
+  excludeThreadId?: string,
+) {
   let query = supabaseAdmin
     .from("appointments")
-    .select("id,scheduled_at,duration_minutes")
+    .select("id,thread_id,scheduled_at,duration_minutes")
     .eq("user_id", userId)
-    .eq("status", "confirmed")
+    .in("status", statuses)
     .gte("scheduled_at", new Date(start.getTime() - 24 * 3600_000).toISOString())
     .lte("scheduled_at", new Date(end.getTime() + 24 * 3600_000).toISOString());
   if (excludeId) query = query.neq("id", excludeId);
+  if (excludeThreadId) query = query.neq("thread_id", excludeThreadId);
   const { data } = await query;
   return (data ?? []).map((a: any) => {
     const s = new Date(a.scheduled_at);
     return { start: s.toISOString(), end: new Date(s.getTime() + (a.duration_minutes ?? 30) * 60_000).toISOString() };
   });
+}
+
+async function getConfirmedAppointmentBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeId?: string) {
+  return getAppointmentBusy(supabaseAdmin, userId, start, end, ["confirmed"], excludeId);
+}
+
+async function getProposedOrConfirmedBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeThreadId?: string) {
+  return getAppointmentBusy(supabaseAdmin, userId, start, end, ["pending", "confirmed"], undefined, excludeThreadId);
 }
 
 export async function logActivity(
