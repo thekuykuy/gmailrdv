@@ -59,6 +59,7 @@ export type Database = {
         Row: {
           agent_enabled: boolean
           agent_persona: string | null
+          ai_model: string
           appointment_duration_minutes: number
           auto_send: boolean
           buffer_minutes: number
@@ -75,6 +76,7 @@ export type Database = {
         Insert: {
           agent_enabled?: boolean
           agent_persona?: string | null
+          ai_model?: string
           appointment_duration_minutes?: number
           auto_send?: boolean
           buffer_minutes?: number
@@ -91,6 +93,7 @@ export type Database = {
         Update: {
           agent_enabled?: boolean
           agent_persona?: string | null
+          ai_model?: string
           appointment_duration_minutes?: number
           auto_send?: boolean
           buffer_minutes?: number
@@ -261,6 +264,7 @@ export type Database = {
           google_email: string | null
           last_history_id: string | null
           last_poll_at: string | null
+          processing_lock_until: string | null
           refresh_token: string
           scopes: string | null
           token_expires_at: string | null
@@ -273,6 +277,7 @@ export type Database = {
           google_email?: string | null
           last_history_id?: string | null
           last_poll_at?: string | null
+          processing_lock_until?: string | null
           refresh_token: string
           scopes?: string | null
           token_expires_at?: string | null
@@ -285,6 +290,7 @@ export type Database = {
           google_email?: string | null
           last_history_id?: string | null
           last_poll_at?: string | null
+          processing_lock_until?: string | null
           refresh_token?: string
           scopes?: string | null
           token_expires_at?: string | null
@@ -322,7 +328,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      claim_google_processing_lock: {
+        Args: { _ttl_seconds?: number; _user_id: string }
+        Returns: boolean
+      }
+      release_google_processing_lock: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
