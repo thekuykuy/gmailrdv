@@ -5,6 +5,7 @@
 import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+import { normalizeAgentAiModel } from "./ai-models";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -16,12 +17,10 @@ import {
   sendGmailReply,
 } from "./google.server";
 
-const MODEL = "google/gemini-2.5-flash";
-
-function getAI() {
+function getAI(aiModel?: string | null) {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("Missing LOVABLE_API_KEY");
-  return createLovableAiGatewayProvider(key)(MODEL);
+  return createLovableAiGatewayProvider(key)(normalizeAgentAiModel(aiModel));
 }
 
 const AnalysisSchema = z.object({
@@ -67,8 +66,9 @@ export async function analyzeEmailWithAI(opts: {
   language: string;
   nowIso: string;
   timezone: string;
+  aiModel?: string | null;
 }): Promise<Analysis> {
-  const model = getAI();
+  const model = getAI(opts.aiModel);
   const prompt = `Tu es un classificateur d'emails. Date actuelle: ${opts.nowIso} (${opts.timezone}). Langue: ${opts.language}.
 
 Historique de la conversation:
@@ -124,8 +124,9 @@ export async function craftReplyWithAI(opts: {
   requestedSlot?: { start: string; end: string };
   questions?: string[];
   timezone: string;
+  aiModel?: string | null;
 }) {
-  const model = getAI();
+  const model = getAI(opts.aiModel);
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(opts.language, { dateStyle: "full", timeStyle: "short", timeZone: opts.timezone });
   const slotsBlock = opts.slotsToOffer?.length
