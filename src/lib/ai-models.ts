@@ -19,6 +19,7 @@ export const AGENT_AI_MODELS = [
 ] as const;
 
 export const DEFAULT_AGENT_AI_MODEL = "google/gemini-2.5-flash";
+export const AGENT_AI_MODEL_VALUES = AGENT_AI_MODELS.map((model) => model.value) as [string, ...string[]];
 
 export function normalizeAgentAiModel(model: string | null | undefined) {
   return AGENT_AI_MODELS.some((m) => m.value === model) ? model! : DEFAULT_AGENT_AI_MODEL;
