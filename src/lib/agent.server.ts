@@ -468,7 +468,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       if (calendarConflict || dbConflict) {
         // Le créneau a été pris entre-temps — annuler la proposition et
         // proposer des alternatives au lieu de réserver en double.
-        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("thread_id", thread.id).eq("status", "pending");
         await logActivity(userId, "calendar_check", "Conflit détecté à la confirmation — créneau déjà pris", `Créneau: ${slotStart.toISOString()}`, thread.id);
 
         const widerBusy = await getFreeBusy(
@@ -519,7 +519,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         .eq("status", "pending");
       if (confirmError) {
         await logActivity(userId, "calendar_check", "Conflit détecté pendant le verrouillage du rendez-vous", confirmError.message, thread.id);
-        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("thread_id", thread.id).eq("status", "pending");
         const widerBusy = await getFreeBusy(
           accessToken,
           settings.calendar_id,
