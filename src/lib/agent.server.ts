@@ -519,7 +519,42 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         .eq("status", "pending");
       if (confirmError) {
         await logActivity(userId, "calendar_check", "Conflit détecté pendant le verrouillage du rendez-vous", confirmError.message, thread.id);
-        return { handled: true, skipped: "confirmation_race_lost" };
+        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+        const widerBusy = await getFreeBusy(
+          accessToken,
+          settings.calendar_id,
+          new Date().toISOString(),
+          new Date(Date.now() + 14 * 86400_000).toISOString(),
+          settings.timezone,
+        );
+        const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+        const alts = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, slotStart, 3);
+        if (alts.length) {
+          await supabaseAdmin.from("appointments").insert(alts.map((alt) => ({
+            user_id: userId,
+            thread_id: thread.id,
+            client_email: parts.fromEmail,
+            client_name: thread.client_name,
+            scheduled_at: alt.start,
+            duration_minutes: selectedDuration,
+            status: "pending",
+          })));
+        }
+        const conflictReply = await craftReplyWithAI({
+          persona: settings.agent_persona ?? "",
+          language: settings.language,
+          clientName: thread.client_name || "",
+          signature: settings.signature ?? "",
+          context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
+          proposalType: "slot_taken_alternatives",
+          slotsToOffer: alts,
+          requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
+          timezone: settings.timezone,
+          aiModel: settings.ai_model,
+        });
+        await supabaseAdmin.from("email_threads").update({ status: "awaiting_client", last_message_at: new Date().toISOString() }).eq("id", thread.id);
+        await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
+        return { handled: true, conflict: true, skipped: "confirmation_race_lost" };
       }
       let ev: { id?: string } = { id: eventId };
       try {
@@ -554,7 +589,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         signature: settings.signature ?? "",
         context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
         proposalType: "confirm_booked",
-        requestedSlot: { start: pending.scheduled_at, end: pending.scheduled_at },
+        requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
         timezone: settings.timezone,
         aiModel: settings.ai_model,
       });
