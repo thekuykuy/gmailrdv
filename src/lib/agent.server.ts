@@ -55,6 +55,13 @@ function makeGoogleCalendarEventId(appointmentId: string) {
   return `agent${appointmentId.replace(/-/g, "")}`;
 }
 
+function findMatchingPendingAppointment(pending: any[], selectedSlotIso?: string) {
+  if (!pending.length) return null;
+  if (!selectedSlotIso) return pending.length === 1 ? pending[0] : null;
+  const selected = new Date(selectedSlotIso).getTime();
+  return pending.find((p) => Math.abs(new Date(p.scheduled_at).getTime() - selected) <= 15 * 60_000) ?? null;
+}
+
 function isCalendarAlreadyExistsError(error: unknown) {
   return typeof error === "object" && error !== null && "status" in error && (error as { status?: number }).status === 409;
 }
