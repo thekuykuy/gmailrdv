@@ -387,6 +387,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     language: settings.language,
     nowIso: new Date().toISOString(),
     timezone: settings.timezone,
+    aiModel: settings.ai_model,
   });
   await logActivity(
     userId,
@@ -426,21 +427,21 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       .limit(1)
       .maybeSingle();
 
-    // Find latest pending appointment for this thread
-    const { data: pending } = await supabaseAdmin
+    // Find the pending slot the client confirmed. If several alternatives were
+    // proposed, only book the matching one; otherwise ask again instead of guessing.
+    const { data: pendingRows } = await supabaseAdmin
       .from("appointments")
       .select("*")
       .eq("thread_id", thread.id)
       .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: false });
+    const selectedSlotIso = analysis.requested_datetimes_iso[0];
+    const pending = findMatchingPendingAppointment(pendingRows ?? [], selectedSlotIso);
 
     if (pending && !alreadyConfirmed) {
       const accessToken = await getValidAccessToken(userId);
-      const selectedSlotIso = analysis.requested_datetimes_iso[0] || pending.scheduled_at;
       const selectedDuration = analysis.duration_minutes > 0 ? analysis.duration_minutes : pending.duration_minutes;
-      const slotStart = new Date(selectedSlotIso);
+      const slotStart = new Date(selectedSlotIso || pending.scheduled_at);
       const slotEnd = new Date(slotStart.getTime() + selectedDuration * 60_000);
 
       // RÈGLE: un créneau = un seul rendez-vous. Re-vérifier la disponibilité
