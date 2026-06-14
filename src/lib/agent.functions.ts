@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { AGENT_AI_MODEL_VALUES } from "@/lib/ai-models";
 
 export const runAgentNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -34,6 +35,7 @@ export const updateSettings = createServerFn({ method: "POST" })
         signature: z.string().max(2000).optional(),
         agent_persona: z.string().max(2000).optional(),
         calendar_id: z.string().max(255).optional(),
+        ai_model: z.enum(AGENT_AI_MODEL_VALUES).optional(),
       })
       .parse(d),
   )
