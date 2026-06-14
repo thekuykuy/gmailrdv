@@ -735,11 +735,11 @@ async function sendAndLog(userId: string, thread: any, parts: any, subject: stri
 
 export async function runAgentForUser(userId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: conn } = await supabaseAdmin.from("google_connections").select("*").eq("user_id", userId).maybeSingle();
+  if (!conn) return { processed: 0, skipped: "no_google_connection" };
   const { data: lockClaimed } = await supabaseAdmin.rpc("claim_google_processing_lock", { _user_id: userId, _ttl_seconds: 300 });
   if (!lockClaimed) return { processed: 0, skipped: "agent_already_running" };
   try {
-  const { data: conn } = await supabaseAdmin.from("google_connections").select("*").eq("user_id", userId).maybeSingle();
-  if (!conn) return { processed: 0, skipped: "no_google_connection" };
   const accessToken = await getValidAccessToken(userId);
   const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) : Math.floor(Date.now() / 1000) - 86400;
   const list = await listRecentMessages(accessToken, after, 15);
