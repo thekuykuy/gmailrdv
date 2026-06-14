@@ -5,6 +5,7 @@
 import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+import { normalizeAgentAiModel } from "./ai-models";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -16,12 +17,10 @@ import {
   sendGmailReply,
 } from "./google.server";
 
-const MODEL = "google/gemini-2.5-flash";
-
-function getAI() {
+function getAI(aiModel?: string | null) {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("Missing LOVABLE_API_KEY");
-  return createLovableAiGatewayProvider(key)(MODEL);
+  return createLovableAiGatewayProvider(key)(normalizeAgentAiModel(aiModel));
 }
 
 const AnalysisSchema = z.object({
@@ -56,6 +55,13 @@ function makeGoogleCalendarEventId(appointmentId: string) {
   return `agent${appointmentId.replace(/-/g, "")}`;
 }
 
+function findMatchingPendingAppointment(pending: any[], selectedSlotIso?: string) {
+  if (!pending.length) return null;
+  if (!selectedSlotIso) return pending.length === 1 ? pending[0] : null;
+  const selected = new Date(selectedSlotIso).getTime();
+  return pending.find((p) => Math.abs(new Date(p.scheduled_at).getTime() - selected) <= 15 * 60_000) ?? null;
+}
+
 function isCalendarAlreadyExistsError(error: unknown) {
   return typeof error === "object" && error !== null && "status" in error && (error as { status?: number }).status === 409;
 }
@@ -67,8 +73,9 @@ export async function analyzeEmailWithAI(opts: {
   language: string;
   nowIso: string;
   timezone: string;
+  aiModel?: string | null;
 }): Promise<Analysis> {
-  const model = getAI();
+  const model = getAI(opts.aiModel);
   const prompt = `Tu es un classificateur d'emails. Date actuelle: ${opts.nowIso} (${opts.timezone}). Langue: ${opts.language}.
 
 Historique de la conversation:
@@ -124,8 +131,9 @@ export async function craftReplyWithAI(opts: {
   requestedSlot?: { start: string; end: string };
   questions?: string[];
   timezone: string;
+  aiModel?: string | null;
 }) {
-  const model = getAI();
+  const model = getAI(opts.aiModel);
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(opts.language, { dateStyle: "full", timeStyle: "short", timeZone: opts.timezone });
   const slotsBlock = opts.slotsToOffer?.length
@@ -188,24 +196,33 @@ function isWithinWorkingHours(date: Date, start: string, end: string, days: numb
   return mins >= sh * 60 + sm && mins + 1 <= eh * 60 + em;
 }
 
+function appointmentFitsWorkingHours(date: Date, durationMinutes: number, settings: { working_days: number[]; working_hours_start: string; working_hours_end: string; timezone: string }) {
+  const end = new Date(date.getTime() + Math.max(durationMinutes, 1) * 60_000 - 60_000);
+  return (
+    isWithinWorkingHours(date, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone) &&
+    isWithinWorkingHours(end, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)
+  );
+}
+
 export function suggestAlternativeSlots(
   busy: { start: string; end: string }[],
   settings: { working_days: number[]; working_hours_start: string; working_hours_end: string; appointment_duration_minutes: number; buffer_minutes: number; timezone: string },
   fromDate: Date,
   count = 3,
 ) {
-  const slots: { start: string; end: string }[] = [];
+  const candidates: { slot: { start: string; end: string }; score: number }[] = [];
   const dur = settings.appointment_duration_minutes;
-  const buf = settings.buffer_minutes;
-  const totalMin = dur + buf;
-  const cursor = new Date(fromDate);
-  cursor.setMinutes(0, 0, 0);
-  cursor.setHours(cursor.getHours() + 1);
-  const limit = new Date(fromDate.getTime() + 14 * 86400_000);
+  const stepMin = Math.max(30, settings.buffer_minutes || 0);
+  const now = new Date(Date.now() + 30 * 60_000);
+  const anchor = fromDate.getTime() > now.getTime() ? fromDate : now;
+  const cursor = new Date(anchor);
+  cursor.setMinutes(Math.ceil(cursor.getMinutes() / 30) * 30, 0, 0);
+  const limit = new Date(anchor.getTime() + 14 * 86400_000);
+  const anchorMinutes = getMinutesInTimezone(anchor, settings.timezone);
 
-  while (cursor < limit && slots.length < count) {
+  while (cursor < limit) {
     if (
-      isWithinWorkingHours(cursor, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)
+      appointmentFitsWorkingHours(cursor, dur, settings)
     ) {
       const end = new Date(cursor.getTime() + dur * 60_000);
       const isBusy = busy.some((b) => {
@@ -214,14 +231,22 @@ export function suggestAlternativeSlots(
         return cursor.getTime() < be && end.getTime() > bs;
       });
       if (!isBusy) {
-        slots.push({ start: cursor.toISOString(), end: end.toISOString() });
-        cursor.setTime(cursor.getTime() + totalMin * 60_000);
-        continue;
+        const dayDistance = Math.floor(Math.max(0, cursor.getTime() - anchor.getTime()) / 86400_000);
+        const timeDistance = Math.abs(getMinutesInTimezone(cursor, settings.timezone) - anchorMinutes);
+        candidates.push({ slot: { start: cursor.toISOString(), end: end.toISOString() }, score: dayDistance * 600 + timeDistance });
       }
     }
-    cursor.setMinutes(cursor.getMinutes() + 30);
+    cursor.setMinutes(cursor.getMinutes() + stepMin);
   }
-  return slots;
+  return candidates
+    .sort((a, b) => a.score - b.score || new Date(a.slot.start).getTime() - new Date(b.slot.start).getTime())
+    .slice(0, count)
+    .map((c) => c.slot);
+}
+
+function getMinutesInTimezone(date: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "numeric", hour12: false }).formatToParts(date);
+  return Number(parts.find((p) => p.type === "hour")?.value ?? "0") * 60 + Number(parts.find((p) => p.type === "minute")?.value ?? "0");
 }
 
 function overlapsSlot(busy: { start: string; end: string }[], start: Date, end: Date) {
@@ -232,20 +257,37 @@ function overlapsSlot(busy: { start: string; end: string }[], start: Date, end: 
   });
 }
 
-async function getConfirmedAppointmentBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeId?: string) {
+async function getAppointmentBusy(
+  supabaseAdmin: any,
+  userId: string,
+  start: Date,
+  end: Date,
+  statuses: string[],
+  excludeId?: string,
+  excludeThreadId?: string,
+) {
   let query = supabaseAdmin
     .from("appointments")
-    .select("id,scheduled_at,duration_minutes")
+    .select("id,thread_id,scheduled_at,duration_minutes")
     .eq("user_id", userId)
-    .eq("status", "confirmed")
+    .in("status", statuses)
     .gte("scheduled_at", new Date(start.getTime() - 24 * 3600_000).toISOString())
     .lte("scheduled_at", new Date(end.getTime() + 24 * 3600_000).toISOString());
   if (excludeId) query = query.neq("id", excludeId);
+  if (excludeThreadId) query = query.neq("thread_id", excludeThreadId);
   const { data } = await query;
   return (data ?? []).map((a: any) => {
     const s = new Date(a.scheduled_at);
     return { start: s.toISOString(), end: new Date(s.getTime() + (a.duration_minutes ?? 30) * 60_000).toISOString() };
   });
+}
+
+async function getConfirmedAppointmentBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeId?: string) {
+  return getAppointmentBusy(supabaseAdmin, userId, start, end, ["confirmed"], excludeId);
+}
+
+async function getProposedOrConfirmedBusy(supabaseAdmin: any, userId: string, start: Date, end: Date, excludeThreadId?: string) {
+  return getAppointmentBusy(supabaseAdmin, userId, start, end, ["pending", "confirmed"], undefined, excludeThreadId);
 }
 
 export async function logActivity(
@@ -353,6 +395,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     language: settings.language,
     nowIso: new Date().toISOString(),
     timezone: settings.timezone,
+    aiModel: settings.ai_model,
   });
   await logActivity(
     userId,
@@ -392,21 +435,21 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       .limit(1)
       .maybeSingle();
 
-    // Find latest pending appointment for this thread
-    const { data: pending } = await supabaseAdmin
+    // Find the pending slot the client confirmed. If several alternatives were
+    // proposed, only book the matching one; otherwise ask again instead of guessing.
+    const { data: pendingRows } = await supabaseAdmin
       .from("appointments")
       .select("*")
       .eq("thread_id", thread.id)
       .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: false });
+    const selectedSlotIso = analysis.requested_datetimes_iso[0];
+    const pending = findMatchingPendingAppointment(pendingRows ?? [], selectedSlotIso);
 
     if (pending && !alreadyConfirmed) {
       const accessToken = await getValidAccessToken(userId);
-      const selectedSlotIso = analysis.requested_datetimes_iso[0] || pending.scheduled_at;
       const selectedDuration = analysis.duration_minutes > 0 ? analysis.duration_minutes : pending.duration_minutes;
-      const slotStart = new Date(selectedSlotIso);
+      const slotStart = new Date(selectedSlotIso || pending.scheduled_at);
       const slotEnd = new Date(slotStart.getTime() + selectedDuration * 60_000);
 
       // RÈGLE: un créneau = un seul rendez-vous. Re-vérifier la disponibilité
@@ -425,7 +468,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       if (calendarConflict || dbConflict) {
         // Le créneau a été pris entre-temps — annuler la proposition et
         // proposer des alternatives au lieu de réserver en double.
-        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("thread_id", thread.id).eq("status", "pending");
         await logActivity(userId, "calendar_check", "Conflit détecté à la confirmation — créneau déjà pris", `Créneau: ${slotStart.toISOString()}`, thread.id);
 
         const widerBusy = await getFreeBusy(
@@ -435,18 +478,18 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           new Date(Date.now() + 14 * 86400_000).toISOString(),
           settings.timezone,
         );
-        const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
-        const alts = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
-        if (alts[0]) {
-          await supabaseAdmin.from("appointments").insert({
+        const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+        const alts = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, slotStart, 3);
+        if (alts.length) {
+          await supabaseAdmin.from("appointments").insert(alts.map((alt) => ({
             user_id: userId,
             thread_id: thread.id,
             client_email: parts.fromEmail,
             client_name: thread.client_name,
-            scheduled_at: alts[0].start,
+            scheduled_at: alt.start,
             duration_minutes: selectedDuration,
             status: "pending",
-          });
+          })));
         }
         const conflictReply = await craftReplyWithAI({
           persona: settings.agent_persona ?? "",
@@ -458,6 +501,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           slotsToOffer: alts,
           requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
           timezone: settings.timezone,
+          aiModel: settings.ai_model,
         });
         await supabaseAdmin
           .from("email_threads")
@@ -468,6 +512,60 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       }
 
       const eventId = makeGoogleCalendarEventId(pending.id);
+      const { error: confirmError } = await supabaseAdmin
+        .from("appointments")
+        .update({ status: "confirmed", scheduled_at: slotStart.toISOString(), duration_minutes: selectedDuration })
+        .eq("id", pending.id)
+        .eq("status", "pending");
+      if (confirmError) {
+        await logActivity(userId, "calendar_check", "Conflit détecté pendant le verrouillage du rendez-vous", confirmError.message, thread.id);
+        await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("thread_id", thread.id).eq("status", "pending");
+        const widerBusy = await getFreeBusy(
+          accessToken,
+          settings.calendar_id,
+          new Date().toISOString(),
+          new Date(Date.now() + 14 * 86400_000).toISOString(),
+          settings.timezone,
+        );
+        const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+        const alts = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, slotStart, 3);
+        if (alts.length) {
+          await supabaseAdmin.from("appointments").insert(alts.map((alt) => ({
+            user_id: userId,
+            thread_id: thread.id,
+            client_email: parts.fromEmail,
+            client_name: thread.client_name,
+            scheduled_at: alt.start,
+            duration_minutes: selectedDuration,
+            status: "pending",
+          })));
+        }
+        const conflictReply = await craftReplyWithAI({
+          persona: settings.agent_persona ?? "",
+          language: settings.language,
+          clientName: thread.client_name || "",
+          signature: settings.signature ?? "",
+          context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
+          proposalType: "slot_taken_alternatives",
+          slotsToOffer: alts,
+          requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
+          timezone: settings.timezone,
+          aiModel: settings.ai_model,
+        });
+        await supabaseAdmin.from("email_threads").update({ status: "awaiting_client", last_message_at: new Date().toISOString() }).eq("id", thread.id);
+        await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
+        return { handled: true, conflict: true, skipped: "confirmation_race_lost" };
+      }
+      const { data: confirmedRow } = await supabaseAdmin
+        .from("appointments")
+        .select("id")
+        .eq("id", pending.id)
+        .eq("status", "confirmed")
+        .maybeSingle();
+      if (!confirmedRow) {
+        await logActivity(userId, "calendar_check", "Confirmation ignorée — le créneau n'est plus en attente", undefined, thread.id);
+        return { handled: true, skipped: "confirmation_race_lost" };
+      }
       let ev: { id?: string } = { id: eventId };
       try {
         ev = await createCalendarEvent(accessToken, settings.calendar_id, {
@@ -479,23 +577,12 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           attendees: [{ email: parts.fromEmail, displayName: thread.client_name ?? undefined }],
         });
       } catch (error) {
-        if (!isCalendarAlreadyExistsError(error)) throw error;
+        if (!isCalendarAlreadyExistsError(error)) {
+          await supabaseAdmin.from("appointments").update({ status: "cancelled" }).eq("id", pending.id);
+          throw error;
+        }
       }
-      await supabaseAdmin
-        .from("appointments")
-        .update({ status: "confirmed", calendar_event_id: ev.id, scheduled_at: slotStart.toISOString(), duration_minutes: selectedDuration })
-        .eq("id", pending.id)
-        .eq("status", "pending");
-      const { data: confirmedRow } = await supabaseAdmin
-        .from("appointments")
-        .select("id")
-        .eq("id", pending.id)
-        .eq("status", "confirmed")
-        .maybeSingle();
-      if (!confirmedRow) {
-        if (ev.id) await deleteCalendarEvent(accessToken, settings.calendar_id, ev.id);
-        return { handled: true, skipped: "confirmation_race_lost" };
-      }
+      await supabaseAdmin.from("appointments").update({ calendar_event_id: ev.id ?? eventId }).eq("id", pending.id);
       // Annuler toute autre demande restante du fil — un seul RDV par fil
       await supabaseAdmin
         .from("appointments")
@@ -512,8 +599,9 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         signature: settings.signature ?? "",
         context: historyForAI.map((m) => `${m.role}: ${m.content}`).join("\n"),
         proposalType: "confirm_booked",
-        requestedSlot: { start: pending.scheduled_at, end: pending.scheduled_at },
+        requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
         timezone: settings.timezone,
+        aiModel: settings.ai_model,
       });
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
@@ -534,7 +622,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   let proposalType: "slot_available" | "slot_taken_alternatives" | "need_more_info" = "need_more_info";
   let alternatives: { start: string; end: string }[] = [];
   let requestedSlot: { start: string; end: string } | undefined;
-  let pendingAppointment: { scheduled_at: string; duration_minutes: number } | null = null;
+  let pendingAppointments: { scheduled_at: string; duration_minutes: number }[] = [];
 
   if (requested) {
     const start = new Date(requested);
@@ -546,13 +634,13 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       new Date(end.getTime() + 3600_000).toISOString(),
       settings.timezone,
     );
-    const dbBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, start, end);
+    const dbBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, start, end, thread.id);
     const conflict = overlapsSlot([...busy, ...dbBusy], start, end);
     await logActivity(userId, "calendar_check", conflict ? "Créneau occupé" : "Créneau libre", `Demandé: ${start.toISOString()}`, thread.id);
     requestedSlot = { start: start.toISOString(), end: end.toISOString() };
-    if (!conflict && isWithinWorkingHours(start, settings.working_hours_start, settings.working_hours_end, settings.working_days, settings.timezone)) {
+    if (!conflict && appointmentFitsWorkingHours(start, dur, settings)) {
       proposalType = "slot_available";
-      pendingAppointment = { scheduled_at: start.toISOString(), duration_minutes: dur };
+      pendingAppointments = [{ scheduled_at: start.toISOString(), duration_minutes: dur }];
     } else {
       proposalType = "slot_taken_alternatives";
       const widerBusy = await getFreeBusy(
@@ -562,9 +650,9 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         new Date(Date.now() + 14 * 86400_000).toISOString(),
         settings.timezone,
       );
-      const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
-      alternatives = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
-      if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
+      const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+      alternatives = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, start, 3);
+      pendingAppointments = alternatives.map((alt) => ({ scheduled_at: alt.start, duration_minutes: dur }));
     }
   } else {
     // No datetime — offer alternatives proactively
@@ -575,21 +663,21 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       new Date(Date.now() + 14 * 86400_000).toISOString(),
       settings.timezone,
     );
-    const confirmedBusy = await getConfirmedAppointmentBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000));
-    alternatives = suggestAlternativeSlots([...widerBusy, ...confirmedBusy], settings, new Date(), 3);
+    const proposedBusy = await getProposedOrConfirmedBusy(supabaseAdmin, userId, new Date(), new Date(Date.now() + 14 * 86400_000), thread.id);
+    alternatives = suggestAlternativeSlots([...widerBusy, ...proposedBusy], settings, new Date(), 3);
     proposalType = alternatives.length ? "slot_taken_alternatives" : "need_more_info";
-    if (alternatives[0]) pendingAppointment = { scheduled_at: alternatives[0].start, duration_minutes: dur };
+    pendingAppointments = alternatives.map((alt) => ({ scheduled_at: alt.start, duration_minutes: dur }));
   }
 
   // Save pending appointment — AUCUN événement Google Calendar ici.
   // On garde une seule demande active par fil : les anciennes sont annulées.
-  if (pendingAppointment) {
+  if (pendingAppointments.length) {
     await supabaseAdmin
       .from("appointments")
       .update({ status: "cancelled" })
       .eq("thread_id", thread.id)
       .eq("status", "pending");
-    await supabaseAdmin.from("appointments").insert({
+    await supabaseAdmin.from("appointments").insert(pendingAppointments.map((pendingAppointment) => ({
       user_id: userId,
       thread_id: thread.id,
       client_email: parts.fromEmail,
@@ -597,7 +685,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       scheduled_at: pendingAppointment.scheduled_at,
       duration_minutes: pendingAppointment.duration_minutes,
       status: "pending",
-    });
+    })));
   }
 
   // Craft + send reply
@@ -612,6 +700,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     requestedSlot,
     questions: analysis.questions_for_agent,
     timezone: settings.timezone,
+    aiModel: settings.ai_model,
   });
 
   await supabaseAdmin
@@ -658,19 +747,25 @@ export async function runAgentForUser(userId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: conn } = await supabaseAdmin.from("google_connections").select("*").eq("user_id", userId).maybeSingle();
   if (!conn) return { processed: 0, skipped: "no_google_connection" };
-  const accessToken = await getValidAccessToken(userId);
-  const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) : Math.floor(Date.now() / 1000) - 86400;
-  const list = await listRecentMessages(accessToken, after, 15);
-  let processed = 0;
-  for (const m of list.messages ?? []) {
-    try {
-      const full = await getGmailMessage(accessToken, m.id);
-      const res = await processIncomingMessage(userId, full);
-      if (res && (res as any).handled) processed++;
-    } catch (e: any) {
-      await logActivity(userId, "error", "Erreur de traitement", String(e?.message ?? e));
+  const { data: lockClaimed } = await supabaseAdmin.rpc("claim_google_processing_lock", { _user_id: userId, _ttl_seconds: 300 });
+  if (!lockClaimed) return { processed: 0, skipped: "agent_already_running" };
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) : Math.floor(Date.now() / 1000) - 86400;
+    const list = await listRecentMessages(accessToken, after, 15);
+    let processed = 0;
+    for (const m of list.messages ?? []) {
+      try {
+        const full = await getGmailMessage(accessToken, m.id);
+        const res = await processIncomingMessage(userId, full);
+        if (res && (res as any).handled) processed++;
+      } catch (e: any) {
+        await logActivity(userId, "error", "Erreur de traitement", String(e?.message ?? e));
+      }
     }
+    await supabaseAdmin.from("google_connections").update({ last_poll_at: new Date().toISOString() }).eq("user_id", userId);
+    return { processed, total: list.messages?.length ?? 0 };
+  } finally {
+    await supabaseAdmin.rpc("release_google_processing_lock", { _user_id: userId });
   }
-  await supabaseAdmin.from("google_connections").update({ last_poll_at: new Date().toISOString() }).eq("user_id", userId);
-  return { processed, total: list.messages?.length ?? 0 };
 }

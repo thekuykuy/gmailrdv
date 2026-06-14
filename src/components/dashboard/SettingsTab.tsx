@@ -5,9 +5,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { updateSettings } from "@/lib/agent.functions";
+import { AGENT_AI_MODELS, DEFAULT_AGENT_AI_MODEL } from "@/lib/ai-models";
 import { Save } from "lucide-react";
 
 const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -46,6 +48,7 @@ export function SettingsTab() {
           signature: s.signature ?? "",
           agent_persona: s.agent_persona ?? "",
           calendar_id: s.calendar_id,
+          ai_model: s.ai_model ?? DEFAULT_AGENT_AI_MODEL,
         },
       });
       toast.success("Paramètres enregistrés");
@@ -130,6 +133,21 @@ export function SettingsTab() {
 
       <div className="glass rounded-2xl p-6 space-y-5">
         <h3 className="font-semibold text-lg">Personnalité de l'agent</h3>
+        <div>
+          <Label>Modèle IA</Label>
+          <Select value={s.ai_model ?? DEFAULT_AGENT_AI_MODEL} onValueChange={(v) => update({ ai_model: v })}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choisir un modèle" />
+            </SelectTrigger>
+            <SelectContent>
+              {AGENT_AI_MODELS.map((model) => (
+                <SelectItem key={model.value} value={model.value}>
+                  {model.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div>
           <Label>Persona / Instructions</Label>
           <Textarea
