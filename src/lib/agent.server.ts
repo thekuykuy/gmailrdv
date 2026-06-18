@@ -24,6 +24,66 @@ function getAI(aiModel?: string | null) {
   return createLovableAiGatewayProvider(key)(normalizeAgentAiModel(aiModel));
 }
 
+async function logAiUsage(opts: {
+  userId?: string;
+  model: string;
+  operation: string;
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null;
+  latencyMs: number;
+  success: boolean;
+  error?: string;
+}) {
+  if (!opts.userId) return;
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const prompt = opts.usage?.promptTokens ?? 0;
+    const completion = opts.usage?.completionTokens ?? 0;
+    const total = opts.usage?.totalTokens ?? prompt + completion;
+    await supabaseAdmin.from("ai_usage_logs").insert({
+      user_id: opts.userId,
+      model: opts.model,
+      operation: opts.operation,
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: total,
+      estimated_cost_usd: estimateCostUsd(opts.model, prompt, completion),
+      latency_ms: opts.latencyMs,
+      success: opts.success,
+      error: opts.error ?? null,
+    });
+  } catch (e) {
+    console.error("[logAiUsage] failed", e);
+  }
+}
+
+async function runAiCall(opts: { aiModel?: string | null; userId?: string; operation: string; prompt: string }) {
+  const modelName = normalizeAgentAiModel(opts.aiModel);
+  const model = getAI(opts.aiModel);
+  const started = Date.now();
+  try {
+    const result = await generateText({ model, prompt: opts.prompt });
+    await logAiUsage({
+      userId: opts.userId,
+      model: modelName,
+      operation: opts.operation,
+      usage: result.usage as any,
+      latencyMs: Date.now() - started,
+      success: true,
+    });
+    return result;
+  } catch (e: any) {
+    await logAiUsage({
+      userId: opts.userId,
+      model: modelName,
+      operation: opts.operation,
+      latencyMs: Date.now() - started,
+      success: false,
+      error: e?.message?.slice(0, 500),
+    });
+    throw e;
+  }
+}
+
 const AnalysisSchema = z.object({
   is_appointment_request: z.boolean(),
   client_name: z.string().default(""),
