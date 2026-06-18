@@ -462,6 +462,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     nowIso: new Date().toISOString(),
     timezone: settings.timezone,
     aiModel: settings.ai_model,
+      userId,
   });
   await logActivity(
     userId,
@@ -568,6 +569,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
           timezone: settings.timezone,
           aiModel: settings.ai_model,
+      userId,
         });
         await supabaseAdmin
           .from("email_threads")
@@ -617,6 +619,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
           timezone: settings.timezone,
           aiModel: settings.ai_model,
+      userId,
         });
         await supabaseAdmin.from("email_threads").update({ status: "awaiting_client", last_message_at: new Date().toISOString() }).eq("id", thread.id);
         await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
@@ -668,6 +671,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
         timezone: settings.timezone,
         aiModel: settings.ai_model,
+      userId,
       });
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
@@ -767,6 +771,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     questions: analysis.questions_for_agent,
     timezone: settings.timezone,
     aiModel: settings.ai_model,
+      userId,
   });
 
   await supabaseAdmin
