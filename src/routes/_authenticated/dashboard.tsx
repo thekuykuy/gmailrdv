@@ -7,13 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   Sparkles, LayoutDashboard, Activity, MessagesSquare, CalendarDays, Settings as SettingsIcon,
-  LogOut, RefreshCw, Plug, CheckCircle2, AlertCircle, Power,
+  LogOut, RefreshCw, Plug, CheckCircle2, AlertCircle, Power, Brain,
 } from "lucide-react";
 import { OverviewTab } from "@/components/dashboard/OverviewTab";
 import { ActivityTab } from "@/components/dashboard/ActivityTab";
 import { ConversationsTab } from "@/components/dashboard/ConversationsTab";
 import { AppointmentsTab } from "@/components/dashboard/AppointmentsTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
+import { UsageTab } from "@/components/dashboard/UsageTab";
 import { useServerFn } from "@tanstack/react-start";
 import { runAgentNow, disconnectGoogle } from "@/lib/agent.functions";
 
