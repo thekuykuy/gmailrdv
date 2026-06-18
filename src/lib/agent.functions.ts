@@ -45,3 +45,22 @@ export const updateSettings = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+export const getAiUsageStats = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ days: z.number().min(1).max(180).default(30) }).parse(d ?? {}),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const since = new Date(Date.now() - data.days * 86400_000).toISOString();
+    const { data: rows, error } = await supabase
+      .from("ai_usage_logs")
+      .select("model, operation, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, latency_ms, success, created_at")
+      .eq("user_id", userId)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (error) throw new Error(error.message);
+    return { rows: rows ?? [], windowDays: data.days };
+  });
