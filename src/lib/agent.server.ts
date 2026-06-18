@@ -135,8 +135,8 @@ export async function analyzeEmailWithAI(opts: {
   nowIso: string;
   timezone: string;
   aiModel?: string | null;
+  userId?: string;
 }): Promise<Analysis> {
-  const model = getAI(opts.aiModel);
   const prompt = `Tu es un classificateur d'emails. Date actuelle: ${opts.nowIso} (${opts.timezone}). Langue: ${opts.language}.
 
 Historique de la conversation:
@@ -164,7 +164,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
 }`;
 
   try {
-    const { text } = await generateText({ model, prompt });
+    const { text } = await runAiCall({ aiModel: opts.aiModel, userId: opts.userId, operation: "analyze_email", prompt });
     const parsed = AnalysisSchema.parse(extractJson(text));
     return parsed;
   } catch (e) {
