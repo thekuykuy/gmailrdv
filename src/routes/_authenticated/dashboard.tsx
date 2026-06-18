@@ -7,13 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   Sparkles, LayoutDashboard, Activity, MessagesSquare, CalendarDays, Settings as SettingsIcon,
-  LogOut, RefreshCw, Plug, CheckCircle2, AlertCircle, Power,
+  LogOut, RefreshCw, Plug, CheckCircle2, AlertCircle, Power, Brain,
 } from "lucide-react";
 import { OverviewTab } from "@/components/dashboard/OverviewTab";
 import { ActivityTab } from "@/components/dashboard/ActivityTab";
 import { ConversationsTab } from "@/components/dashboard/ConversationsTab";
 import { AppointmentsTab } from "@/components/dashboard/AppointmentsTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
+import { UsageTab } from "@/components/dashboard/UsageTab";
 import { useServerFn } from "@tanstack/react-start";
 import { runAgentNow, disconnectGoogle } from "@/lib/agent.functions";
 
@@ -170,6 +171,9 @@ function Dashboard() {
             <TabsTrigger value="appointments" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
               <CalendarDays className="w-4 h-4" /> Rendez-vous
             </TabsTrigger>
+            <TabsTrigger value="usage" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
+              <Brain className="w-4 h-4" /> Crédits IA
+            </TabsTrigger>
             <TabsTrigger value="settings" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
               <SettingsIcon className="w-4 h-4" /> Paramètres
             </TabsTrigger>
@@ -179,6 +183,7 @@ function Dashboard() {
           <TabsContent value="activity"><ActivityTab /></TabsContent>
           <TabsContent value="conversations"><ConversationsTab /></TabsContent>
           <TabsContent value="appointments"><AppointmentsTab /></TabsContent>
+          <TabsContent value="usage"><UsageTab /></TabsContent>
           <TabsContent value="settings"><SettingsTab /></TabsContent>
         </Tabs>
       </main>

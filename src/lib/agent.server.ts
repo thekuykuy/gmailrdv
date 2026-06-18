@@ -6,6 +6,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 import { normalizeAgentAiModel } from "./ai-models";
+import { estimateCostUsd } from "./ai-pricing";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -21,6 +22,66 @@ function getAI(aiModel?: string | null) {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("Missing LOVABLE_API_KEY");
   return createLovableAiGatewayProvider(key)(normalizeAgentAiModel(aiModel));
+}
+
+async function logAiUsage(opts: {
+  userId?: string;
+  model: string;
+  operation: string;
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null;
+  latencyMs: number;
+  success: boolean;
+  error?: string;
+}) {
+  if (!opts.userId) return;
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const prompt = opts.usage?.promptTokens ?? 0;
+    const completion = opts.usage?.completionTokens ?? 0;
+    const total = opts.usage?.totalTokens ?? prompt + completion;
+    await supabaseAdmin.from("ai_usage_logs").insert({
+      user_id: opts.userId,
+      model: opts.model,
+      operation: opts.operation,
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: total,
+      estimated_cost_usd: estimateCostUsd(opts.model, prompt, completion),
+      latency_ms: opts.latencyMs,
+      success: opts.success,
+      error: opts.error ?? null,
+    });
+  } catch (e) {
+    console.error("[logAiUsage] failed", e);
+  }
+}
+
+async function runAiCall(opts: { aiModel?: string | null; userId?: string; operation: string; prompt: string }) {
+  const modelName = normalizeAgentAiModel(opts.aiModel);
+  const model = getAI(opts.aiModel);
+  const started = Date.now();
+  try {
+    const result = await generateText({ model, prompt: opts.prompt });
+    await logAiUsage({
+      userId: opts.userId,
+      model: modelName,
+      operation: opts.operation,
+      usage: result.usage as any,
+      latencyMs: Date.now() - started,
+      success: true,
+    });
+    return result;
+  } catch (e: any) {
+    await logAiUsage({
+      userId: opts.userId,
+      model: modelName,
+      operation: opts.operation,
+      latencyMs: Date.now() - started,
+      success: false,
+      error: e?.message?.slice(0, 500),
+    });
+    throw e;
+  }
 }
 
 const AnalysisSchema = z.object({
@@ -74,8 +135,8 @@ export async function analyzeEmailWithAI(opts: {
   nowIso: string;
   timezone: string;
   aiModel?: string | null;
+  userId?: string;
 }): Promise<Analysis> {
-  const model = getAI(opts.aiModel);
   const prompt = `Tu es un classificateur d'emails. Date actuelle: ${opts.nowIso} (${opts.timezone}). Langue: ${opts.language}.
 
 Historique de la conversation:
@@ -103,7 +164,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
 }`;
 
   try {
-    const { text } = await generateText({ model, prompt });
+    const { text } = await runAiCall({ aiModel: opts.aiModel, userId: opts.userId, operation: "analyze_email", prompt });
     const parsed = AnalysisSchema.parse(extractJson(text));
     return parsed;
   } catch (e) {
@@ -132,8 +193,8 @@ export async function craftReplyWithAI(opts: {
   questions?: string[];
   timezone: string;
   aiModel?: string | null;
+  userId?: string;
 }) {
-  const model = getAI(opts.aiModel);
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(opts.language, { dateStyle: "full", timeStyle: "short", timeZone: opts.timezone });
   const slotsBlock = opts.slotsToOffer?.length
@@ -168,7 +229,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
 }`;
 
   try {
-    const { text } = await generateText({ model, prompt });
+    const { text } = await runAiCall({ aiModel: opts.aiModel, userId: opts.userId, operation: `craft_reply:${opts.proposalType}`, prompt });
     const obj = extractJson(text);
     return {
       subject: String(obj.subject ?? "Re: votre demande"),
@@ -176,7 +237,12 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
     };
   } catch (e) {
     console.error("[craftReplyWithAI] parse failed", e);
-    const { text } = await generateText({ model, prompt: prompt.replace(/Réponds UNIQUEMENT[\s\S]*$/, "Écris seulement le corps de l'email.") });
+    const { text } = await runAiCall({
+      aiModel: opts.aiModel,
+      userId: opts.userId,
+      operation: `craft_reply_fallback:${opts.proposalType}`,
+      prompt: prompt.replace(/Réponds UNIQUEMENT[\s\S]*$/, "Écris seulement le corps de l'email."),
+    });
     return { subject: "Re: votre demande", body: text };
   }
 }
@@ -396,6 +462,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     nowIso: new Date().toISOString(),
     timezone: settings.timezone,
     aiModel: settings.ai_model,
+      userId,
   });
   await logActivity(
     userId,
@@ -502,6 +569,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
           timezone: settings.timezone,
           aiModel: settings.ai_model,
+      userId,
         });
         await supabaseAdmin
           .from("email_threads")
@@ -551,6 +619,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
           timezone: settings.timezone,
           aiModel: settings.ai_model,
+      userId,
         });
         await supabaseAdmin.from("email_threads").update({ status: "awaiting_client", last_message_at: new Date().toISOString() }).eq("id", thread.id);
         await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
@@ -602,6 +671,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         requestedSlot: { start: slotStart.toISOString(), end: slotEnd.toISOString() },
         timezone: settings.timezone,
         aiModel: settings.ai_model,
+      userId,
       });
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
@@ -701,6 +771,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     questions: analysis.questions_for_agent,
     timezone: settings.timezone,
     aiModel: settings.ai_model,
+      userId,
   });
 
   await supabaseAdmin
