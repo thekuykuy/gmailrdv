@@ -6,6 +6,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 import { normalizeAgentAiModel } from "./ai-models";
+import { estimateCostUsd } from "./ai-pricing";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
