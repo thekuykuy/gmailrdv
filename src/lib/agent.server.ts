@@ -193,8 +193,8 @@ export async function craftReplyWithAI(opts: {
   questions?: string[];
   timezone: string;
   aiModel?: string | null;
+  userId?: string;
 }) {
-  const model = getAI(opts.aiModel);
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(opts.language, { dateStyle: "full", timeStyle: "short", timeZone: opts.timezone });
   const slotsBlock = opts.slotsToOffer?.length
@@ -229,7 +229,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
 }`;
 
   try {
-    const { text } = await generateText({ model, prompt });
+    const { text } = await runAiCall({ aiModel: opts.aiModel, userId: opts.userId, operation: `craft_reply:${opts.proposalType}`, prompt });
     const obj = extractJson(text);
     return {
       subject: String(obj.subject ?? "Re: votre demande"),
@@ -237,7 +237,12 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
     };
   } catch (e) {
     console.error("[craftReplyWithAI] parse failed", e);
-    const { text } = await generateText({ model, prompt: prompt.replace(/Réponds UNIQUEMENT[\s\S]*$/, "Écris seulement le corps de l'email.") });
+    const { text } = await runAiCall({
+      aiModel: opts.aiModel,
+      userId: opts.userId,
+      operation: `craft_reply_fallback:${opts.proposalType}`,
+      prompt: prompt.replace(/Réponds UNIQUEMENT[\s\S]*$/, "Écris seulement le corps de l'email."),
+    });
     return { subject: "Re: votre demande", body: text };
   }
 }
