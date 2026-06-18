@@ -109,6 +109,54 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_usage_logs: {
+        Row: {
+          completion_tokens: number
+          created_at: string
+          error: string | null
+          estimated_cost_usd: number
+          id: string
+          latency_ms: number
+          model: string
+          operation: string
+          prompt_tokens: number
+          success: boolean
+          thread_id: string | null
+          total_tokens: number
+          user_id: string
+        }
+        Insert: {
+          completion_tokens?: number
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number
+          id?: string
+          latency_ms?: number
+          model: string
+          operation: string
+          prompt_tokens?: number
+          success?: boolean
+          thread_id?: string | null
+          total_tokens?: number
+          user_id: string
+        }
+        Update: {
+          completion_tokens?: number
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number
+          id?: string
+          latency_ms?: number
+          model?: string
+          operation?: string
+          prompt_tokens?: number
+          success?: boolean
+          thread_id?: string | null
+          total_tokens?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       appointments: {
         Row: {
           calendar_event_id: string | null
