@@ -477,6 +477,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     timezone: settings.timezone,
     aiModel: settings.ai_model,
       userId,
+      skipGreeting,
   });
   await logActivity(
     userId,
@@ -584,6 +585,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           timezone: settings.timezone,
           aiModel: settings.ai_model,
       userId,
+      skipGreeting,
         });
         await supabaseAdmin
           .from("email_threads")
@@ -634,6 +636,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           timezone: settings.timezone,
           aiModel: settings.ai_model,
       userId,
+      skipGreeting,
         });
         await supabaseAdmin.from("email_threads").update({ status: "awaiting_client", last_message_at: new Date().toISOString() }).eq("id", thread.id);
         await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
@@ -686,6 +689,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         timezone: settings.timezone,
         aiModel: settings.ai_model,
       userId,
+      skipGreeting,
       });
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
@@ -786,6 +790,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     timezone: settings.timezone,
     aiModel: settings.ai_model,
       userId,
+      skipGreeting,
   });
 
   await supabaseAdmin
