@@ -131,4 +131,3 @@ function Dashboard() {
 }
 
 // Suppress unused import warnings for icons used in older layout
-void AlertCircle;
