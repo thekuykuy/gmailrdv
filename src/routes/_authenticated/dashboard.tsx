@@ -1,14 +1,12 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import {
-  Sparkles, LayoutDashboard, Activity, MessagesSquare, CalendarDays, Settings as SettingsIcon,
-  LogOut, RefreshCw, Plug, CheckCircle2, AlertCircle, Power, Brain,
-} from "lucide-react";
+import { RefreshCw, Plug, CheckCircle2, AlertCircle, Power } from "lucide-react";
+import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
+import { AppSidebar, type DashboardTab } from "@/components/dashboard/AppSidebar";
 import { OverviewTab } from "@/components/dashboard/OverviewTab";
 import { ActivityTab } from "@/components/dashboard/ActivityTab";
 import { ConversationsTab } from "@/components/dashboard/ConversationsTab";
@@ -23,12 +21,21 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Tableau de bord · Meeting Agent" }] }),
 });
 
+const TITLES: Record<DashboardTab, string> = {
+  overview: "Dashboard",
+  activity: "Activité",
+  conversations: "Conversations",
+  appointments: "Calendrier",
+  usage: "Crédits IA",
+  settings: "Paramètres",
+};
+
 function Dashboard() {
   const navigate = useNavigate();
   const [userEmail, setUserEmail] = useState<string>("");
   const [googleConn, setGoogleConn] = useState<any>(null);
-  const [loadingConn, setLoadingConn] = useState(true);
   const [running, setRunning] = useState(false);
+  const [tab, setTab] = useState<DashboardTab>("overview");
   const runFn = useServerFn(runAgentNow);
   const disconnectFn = useServerFn(disconnectGoogle);
 
@@ -36,21 +43,17 @@ function Dashboard() {
     const url = new URL(window.location.href);
     if (url.searchParams.get("google") === "connected") {
       toast.success("Compte Google connecté !");
-      url.searchParams.delete("google");
-      window.history.replaceState({}, "", url.toString());
+      url.searchParams.delete("google"); window.history.replaceState({}, "", url.toString());
     }
     if (url.searchParams.get("google_error")) {
       toast.error("Erreur Google : " + url.searchParams.get("google_error"));
-      url.searchParams.delete("google_error");
-      window.history.replaceState({}, "", url.toString());
+      url.searchParams.delete("google_error"); window.history.replaceState({}, "", url.toString());
     }
   }, []);
 
   const loadConn = async () => {
-    setLoadingConn(true);
     const { data } = await supabase.from("google_connections").select("*").maybeSingle();
     setGoogleConn(data);
-    setLoadingConn(false);
   };
 
   useEffect(() => {
@@ -58,135 +61,74 @@ function Dashboard() {
     loadConn();
   }, []);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    navigate({ to: "/auth" });
-  };
-
+  const signOut = async () => { await supabase.auth.signOut(); navigate({ to: "/auth" }); };
   const connectGoogle = async () => {
     const { data } = await supabase.auth.getUser();
     if (!data.user) return;
     window.location.href = `/api/google/connect?uid=${data.user.id}`;
   };
-
   const runNow = async () => {
-    if (!googleConn) {
-      toast.error("Connectez d'abord votre compte Google.");
-      return;
-    }
+    if (!googleConn) return toast.error("Connectez d'abord votre compte Google.");
     setRunning(true);
     try {
       const res = await runFn();
       toast.success(`Analyse terminée — ${(res as any).processed ?? 0} email(s) traité(s).`);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Erreur");
-    } finally {
-      setRunning(false);
-    }
+    } catch (e: any) { toast.error(e?.message ?? "Erreur"); } finally { setRunning(false); }
   };
-
   const disconnect = async () => {
     if (!confirm("Déconnecter votre compte Google ?")) return;
-    await disconnectFn();
-    toast.success("Compte Google déconnecté");
-    loadConn();
+    await disconnectFn(); toast.success("Compte Google déconnecté"); loadConn();
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Top nav */}
-      <header className="glass-strong border-b border-border sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to="/dashboard" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-primary flex items-center justify-center shadow-glow">
-              <Sparkles className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="font-bold text-gradient">Meeting Agent</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            {googleConn ? (
-              <Badge variant="outline" className="border-success/40 text-success bg-success/10 font-mono text-xs">
-                <CheckCircle2 className="w-3 h-3 mr-1" /> {googleConn.google_email}
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="border-warning/40 text-warning bg-warning/10 font-mono text-xs">
-                <AlertCircle className="w-3 h-3 mr-1" /> Google non connecté
-              </Badge>
-            )}
-            <Button size="sm" variant="ghost" onClick={signOut}>
-              <LogOut className="w-4 h-4 mr-1.5" /> {userEmail.split("@")[0]}
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
-        {/* Hero status */}
-        <div className="glass-strong rounded-3xl p-6 md:p-8 mb-8 relative overflow-hidden">
-          <div className="absolute -top-20 -right-20 w-72 h-72 bg-gradient-primary opacity-20 blur-3xl rounded-full" />
-          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-mono text-primary mb-2">
-                <span className="w-2 h-2 rounded-full bg-primary animate-pulse-glow" />
-                {googleConn ? "AGENT ACTIF" : "EN ATTENTE DE CONNEXION GOOGLE"}
-              </div>
-              <h1 className="text-2xl md:text-3xl font-bold mb-1">Bienvenue, <span className="text-gradient">{userEmail.split("@")[0]}</span></h1>
-              <p className="text-sm text-muted-foreground">
-                {googleConn
-                  ? "Votre agent surveille votre boîte Gmail et répond aux clients automatiquement."
-                  : "Connectez votre compte Google pour lancer l'agent."}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
+    <SidebarProvider defaultOpen>
+      <div className="min-h-screen flex w-full bg-background">
+        <AppSidebar active={tab} onSelect={setTab} userEmail={userEmail} onSignOut={signOut} />
+        <SidebarInset className="flex-1">
+          <header className="h-14 border-b border-border flex items-center gap-3 px-4 sticky top-0 z-20 bg-background/80 backdrop-blur">
+            <SidebarTrigger />
+            <h1 className="text-base font-semibold">{TITLES[tab]}</h1>
+            <div className="ml-auto flex items-center gap-2">
               {googleConn ? (
                 <>
-                  <Button onClick={runNow} disabled={running} className="bg-gradient-primary text-primary-foreground shadow-glow">
+                  <Badge variant="outline" className="border-success/40 text-success bg-success/10 font-mono text-[10px] hidden md:inline-flex">
+                    <CheckCircle2 className="w-3 h-3 mr-1" /> {googleConn.google_email}
+                  </Badge>
+                  <Button size="sm" onClick={runNow} disabled={running} variant="outline" className="rounded-xl">
                     <RefreshCw className={`w-4 h-4 mr-2 ${running ? "animate-spin" : ""}`} />
-                    {running ? "Analyse..." : "Analyser maintenant"}
+                    {running ? "Sync..." : "Sync maintenant"}
                   </Button>
-                  <Button variant="outline" onClick={disconnect}>
-                    <Power className="w-4 h-4 mr-2" /> Déconnecter Google
+                  <Button size="sm" variant="ghost" onClick={disconnect} title="Déconnecter Google">
+                    <Power className="w-4 h-4" />
                   </Button>
                 </>
               ) : (
-                <Button onClick={connectGoogle} className="bg-gradient-primary text-primary-foreground shadow-glow">
+                <Button size="sm" onClick={connectGoogle} className="bg-foreground text-background hover:bg-foreground/90 rounded-xl">
                   <Plug className="w-4 h-4 mr-2" /> Connecter Gmail + Calendar
                 </Button>
               )}
             </div>
-          </div>
-        </div>
+          </header>
 
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="glass border border-border h-12 p-1.5">
-            <TabsTrigger value="overview" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
-              <LayoutDashboard className="w-4 h-4" /> Vue d'ensemble
-            </TabsTrigger>
-            <TabsTrigger value="activity" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
-              <Activity className="w-4 h-4" /> Activité
-            </TabsTrigger>
-            <TabsTrigger value="conversations" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
-              <MessagesSquare className="w-4 h-4" /> Conversations
-            </TabsTrigger>
-            <TabsTrigger value="appointments" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
-              <CalendarDays className="w-4 h-4" /> Rendez-vous
-            </TabsTrigger>
-            <TabsTrigger value="usage" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
-              <Brain className="w-4 h-4" /> Crédits IA
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground gap-2">
-              <SettingsIcon className="w-4 h-4" /> Paramètres
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview"><OverviewTab /></TabsContent>
-          <TabsContent value="activity"><ActivityTab /></TabsContent>
-          <TabsContent value="conversations"><ConversationsTab /></TabsContent>
-          <TabsContent value="appointments"><AppointmentsTab /></TabsContent>
-          <TabsContent value="usage"><UsageTab /></TabsContent>
-          <TabsContent value="settings"><SettingsTab /></TabsContent>
-        </Tabs>
-      </main>
-    </div>
+          <main className="p-6 md:p-8 max-w-[1400px] w-full mx-auto">
+            {tab === "overview" && (
+              <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
+                <span className={`w-2 h-2 rounded-full ${googleConn ? "bg-warning" : "bg-muted"} ${googleConn ? "animate-pulse" : ""}`} />
+                {googleConn ? <>Agent actif · Gmail connecté ({googleConn.google_email})</> : <>En attente — connectez Gmail / Calendar</>}
+              </div>
+            )}
+            {tab === "overview" && <OverviewTab />}
+            {tab === "activity" && <ActivityTab />}
+            {tab === "conversations" && <ConversationsTab />}
+            {tab === "appointments" && <AppointmentsTab />}
+            {tab === "usage" && <UsageTab />}
+            {tab === "settings" && <SettingsTab />}
+          </main>
+        </SidebarInset>
+      </div>
+    </SidebarProvider>
   );
 }
+
+// Suppress unused import warnings for icons used in older layout
+void AlertCircle;
