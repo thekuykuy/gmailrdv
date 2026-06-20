@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { RefreshCw, Plug, CheckCircle2, AlertCircle, Power } from "lucide-react";
+import { RefreshCw, Plug, CheckCircle2, Power } from "lucide-react";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar, type DashboardTab } from "@/components/dashboard/AppSidebar";
 import { OverviewTab } from "@/components/dashboard/OverviewTab";
