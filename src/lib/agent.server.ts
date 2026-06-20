@@ -194,6 +194,7 @@ export async function craftReplyWithAI(opts: {
   timezone: string;
   aiModel?: string | null;
   userId?: string;
+  skipGreeting?: boolean;
 }) {
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(opts.language, { dateStyle: "full", timeStyle: "short", timeZone: opts.timezone });
@@ -209,9 +210,14 @@ export async function craftReplyWithAI(opts: {
     confirm_booked: "Confirme que le rendez-vous est désormais enregistré.",
   }[opts.proposalType];
 
+  const greetingRule = opts.skipGreeting
+    ? `RÈGLE IMPORTANTE: tu as DÉJÀ écrit au client aujourd'hui dans ce même fil. Ne recommence PAS par "Bonjour", "Bonsoir", "Salut" ni aucune formule de salutation. Enchaîne directement avec ta réponse (par ex. "Voici…", "Comme convenu…", "Très bien,…").`
+    : `Tu peux ouvrir par une salutation courtoise ("Bonjour ${opts.clientName || ""}", etc.) car c'est ton premier message du jour dans ce fil.`;
+
   const prompt = `${opts.persona}
 Langue: ${opts.language}. Client: ${opts.clientName || "le client"}.
 Objectif: ${intent}
+${greetingRule}
 ${reqBlock}
 ${slotsBlock}
 ${questionsBlock}
@@ -227,6 +233,7 @@ Réponds UNIQUEMENT avec un objet JSON valide (aucun texte avant/après, pas de 
   "subject": string,
   "body": string
 }`;
+
 
   try {
     const { text } = await runAiCall({ aiModel: opts.aiModel, userId: opts.userId, operation: `craft_reply:${opts.proposalType}`, prompt });
@@ -444,7 +451,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
   // Build history
   const { data: history } = await supabaseAdmin
     .from("email_messages")
-    .select("direction,body,subject")
+    .select("direction,body,subject,sent_at")
     .eq("thread_id", thread.id)
     .order("sent_at", { ascending: true });
   const historyForAI =
@@ -452,6 +459,13 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
       role: m.direction === "inbound" ? ("user" as const) : ("assistant" as const),
       content: `${m.subject ?? ""}\n${m.body ?? ""}`,
     })) ?? [];
+
+  // Greeting rule: do not say "Bonjour" twice the same day in the same thread.
+  const tz = settings.timezone || "Indian/Reunion";
+  const dayKey = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+  const todayKey = dayKey(new Date().toISOString());
+  const skipGreeting = (history ?? []).some((m) => m.direction === "outbound" && m.sent_at && dayKey(m.sent_at) === todayKey);
+
 
   // Analyze
   const analysis = await analyzeEmailWithAI({
@@ -464,6 +478,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     aiModel: settings.ai_model,
       userId,
   });
+
   await logActivity(
     userId,
     "analysis",
@@ -570,6 +585,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           timezone: settings.timezone,
           aiModel: settings.ai_model,
       userId,
+      skipGreeting,
         });
         await supabaseAdmin
           .from("email_threads")
@@ -620,6 +636,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
           timezone: settings.timezone,
           aiModel: settings.ai_model,
       userId,
+      skipGreeting,
         });
         await supabaseAdmin.from("email_threads").update({ status: "awaiting_client", last_message_at: new Date().toISOString() }).eq("id", thread.id);
         await sendAndLog(userId, thread, parts, conflictReply.subject, conflictReply.body, settings.auto_send);
@@ -672,6 +689,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
         timezone: settings.timezone,
         aiModel: settings.ai_model,
       userId,
+      skipGreeting,
       });
       await sendAndLog(userId, thread, parts, reply.subject, reply.body, settings.auto_send);
       return { handled: true, booked: true };
@@ -772,6 +790,7 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     timezone: settings.timezone,
     aiModel: settings.ai_model,
       userId,
+      skipGreeting,
   });
 
   await supabaseAdmin

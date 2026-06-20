@@ -64,6 +64,7 @@ export type Database = {
           auto_send: boolean
           buffer_minutes: number
           calendar_id: string
+          cron_interval_minutes: number
           language: string
           signature: string | null
           timezone: string
@@ -81,6 +82,7 @@ export type Database = {
           auto_send?: boolean
           buffer_minutes?: number
           calendar_id?: string
+          cron_interval_minutes?: number
           language?: string
           signature?: string | null
           timezone?: string
@@ -98,6 +100,7 @@ export type Database = {
           auto_send?: boolean
           buffer_minutes?: number
           calendar_id?: string
+          cron_interval_minutes?: number
           language?: string
           signature?: string | null
           timezone?: string
@@ -382,6 +385,10 @@ export type Database = {
       }
       release_google_processing_lock: {
         Args: { _user_id: string }
+        Returns: undefined
+      }
+      update_poll_cron_interval: {
+        Args: { _minutes: number }
         Returns: undefined
       }
     }
