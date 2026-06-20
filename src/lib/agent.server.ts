@@ -477,8 +477,8 @@ export async function processIncomingMessage(userId: string, gmailMessage: any) 
     timezone: settings.timezone,
     aiModel: settings.ai_model,
       userId,
-      skipGreeting,
   });
+
   await logActivity(
     userId,
     "analysis",
