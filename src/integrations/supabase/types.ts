@@ -374,6 +374,42 @@ export type Database = {
         }
         Relationships: []
       }
+      studio_connections: {
+        Row: {
+          api_key: string
+          created_at: string
+          enabled: boolean
+          endpoint_url: string
+          id: string
+          last_sent_at: string | null
+          sent_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key: string
+          created_at?: string
+          enabled?: boolean
+          endpoint_url: string
+          id?: string
+          last_sent_at?: string | null
+          sent_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key?: string
+          created_at?: string
+          enabled?: boolean
+          endpoint_url?: string
+          id?: string
+          last_sent_at?: string | null
+          sent_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
