@@ -841,8 +841,10 @@ export async function runAgentForUser(userId: string) {
   if (!lockClaimed) return { processed: 0, skipped: "agent_already_running" };
   try {
     const accessToken = await getValidAccessToken(userId);
-    const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) : Math.floor(Date.now() / 1000) - 86400;
-    const list = await listRecentMessages(accessToken, after, 15);
+    const pollStartedAt = new Date();
+    // 10 min overlap: messages are deduped by gmail id, so no mail slips between runs
+    const after = conn.last_poll_at ? Math.floor(new Date(conn.last_poll_at).getTime() / 1000) - 600 : Math.floor(Date.now() / 1000) - 86400;
+    const list = await listRecentMessages(accessToken, after, 25);
     let processed = 0;
     for (const m of list.messages ?? []) {
       try {
@@ -853,7 +855,7 @@ export async function runAgentForUser(userId: string) {
         await logActivity(userId, "error", "Erreur de traitement", String(e?.message ?? e));
       }
     }
-    await supabaseAdmin.from("google_connections").update({ last_poll_at: new Date().toISOString() }).eq("user_id", userId);
+    await supabaseAdmin.from("google_connections").update({ last_poll_at: pollStartedAt.toISOString() }).eq("user_id", userId);
     return { processed, total: list.messages?.length ?? 0 };
   } finally {
     await supabaseAdmin.rpc("release_google_processing_lock", { _user_id: userId });
