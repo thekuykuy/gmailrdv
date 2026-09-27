@@ -1,10 +1,10 @@
-import { Bot, LayoutDashboard, Activity, MessagesSquare, CalendarDays, Brain, Settings as SettingsIcon, LogOut } from "lucide-react";
+import { Bot, LayoutDashboard, Activity, MessagesSquare, CalendarDays, Brain, Settings as SettingsIcon, LogOut, Radio } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
 
-export type DashboardTab = "overview" | "activity" | "conversations" | "appointments" | "usage" | "settings";
+export type DashboardTab = "overview" | "activity" | "conversations" | "appointments" | "usage" | "studio" | "settings";
 
 const ITEMS: { id: DashboardTab; title: string; icon: any }[] = [
   { id: "overview", title: "Dashboard", icon: LayoutDashboard },
@@ -12,6 +12,7 @@ const ITEMS: { id: DashboardTab; title: string; icon: any }[] = [
   { id: "conversations", title: "Conversations", icon: MessagesSquare },
   { id: "appointments", title: "Calendrier", icon: CalendarDays },
   { id: "usage", title: "Crédits IA", icon: Brain },
+  { id: "studio", title: "Connexion Studio", icon: Radio },
   { id: "settings", title: "Paramètres", icon: SettingsIcon },
 ];
 

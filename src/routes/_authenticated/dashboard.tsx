@@ -13,6 +13,7 @@ import { ConversationsTab } from "@/components/dashboard/ConversationsTab";
 import { AppointmentsTab } from "@/components/dashboard/AppointmentsTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { UsageTab } from "@/components/dashboard/UsageTab";
+import { StudioTab } from "@/components/dashboard/StudioTab";
 import { useServerFn } from "@tanstack/react-start";
 import { runAgentNow, disconnectGoogle } from "@/lib/agent.functions";
 
@@ -27,6 +28,7 @@ const TITLES: Record<DashboardTab, string> = {
   conversations: "Conversations",
   appointments: "Calendrier",
   usage: "Crédits IA",
+  studio: "Connexion Studio",
   settings: "Paramètres",
 };
 
@@ -122,6 +124,7 @@ function Dashboard() {
             {tab === "conversations" && <ConversationsTab />}
             {tab === "appointments" && <AppointmentsTab />}
             {tab === "usage" && <UsageTab />}
+            {tab === "studio" && <StudioTab />}
             {tab === "settings" && <SettingsTab />}
           </main>
         </SidebarInset>
